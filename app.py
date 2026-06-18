@@ -3,21 +3,27 @@ import pandas as pd
 import os
 import glob
 import re
+import numpy as np
 from datetime import datetime, timedelta
 
 # === CONFIGURAZIONE ===
 DATA_DIR = "data"
 
 # Processi con NIOSH > 2 (scenario peggiore) e loro nomi nello snapshot
-# NOTA: Pick e Palletize-Case contano come NIOSH alto SOLO se in area ITK1 (SDC)
-# Pick normale (non ITK1) ha NIOSH < 2, quindi non va incluso qui
+# Pick e Palletize-Case contano come NIOSH alto SOLO se in area ITK1
 PROCESSI_NIOSH_ALTO_NON_ITK1 = {
     "Robotics Operator": "CORRAL OPERATOR / PID OPERATOR (2.32)",
     "Cart Handler Stow": "RUNNER STOW (2.05)",
     "Fluid Loader": "SCARICO FLUIDO (2.51)",
     "Water Spider": "WATERSPIDER/RUNNER (2.53)",
 }
-# Per SDC (Pick/Palletize-Case in ITK1), usiamo la colonna ITK1_HoursPercent
+
+# Mapping nomi ITK1 per visualizzazione
+# Pick in ITK1 = "PICK SDC", Palletize-Case in ITK1 = "SDC DOCK"
+ITK1_DISPLAY_NAMES = {
+    "Pick": "PICK SDC",
+    "Palletize - Case": "SDC DOCK",
+}
 
 st.set_page_config(page_title="Rotazione AAs - Dashboard", layout="wide")
 
@@ -50,7 +56,6 @@ def calc_niosh_alto_pct(row):
     processes_str = row.get("Processes_7d_weighted", "")
     itk1_pct = row.get("ITK1_HoursPercent", 0)
     
-    # Parte 1: processi non-ITK1 con NIOSH alto
     non_itk1_pct = 0.0
     if processes_str and not pd.isna(processes_str):
         parts = str(processes_str).split("|")
@@ -63,12 +68,43 @@ def calc_niosh_alto_pct(row):
                         non_itk1_pct += float(match.group(1))
                     break
     
-    # Parte 2: ITK1 (SDC) - usa ITK1_HoursPercent (è già un ratio 0-1)
     itk1_pct_value = 0.0
     if itk1_pct and not pd.isna(itk1_pct):
-        itk1_pct_value = float(itk1_pct) * 100  # Converti a percentuale
+        itk1_pct_value = float(itk1_pct) * 100
     
     return non_itk1_pct + itk1_pct_value
+
+def format_processes_display(processes_str, itk1_processes_str):
+    """Riformatta i nomi dei processi per la visualizzazione.
+    Pick in ITK1 -> PICK SDC, Palletize-Case in ITK1 -> SDC DOCK."""
+    if not processes_str or pd.isna(processes_str):
+        return ""
+    
+    # Determina quali processi sono in ITK1
+    itk1_procs = set()
+    if itk1_processes_str and not pd.isna(itk1_processes_str):
+        for part in str(itk1_processes_str).split("|"):
+            match = re.match(r'(.+?)\s+[\d.]+%', part.strip())
+            if match:
+                itk1_procs.add(match.group(1).strip().lower())
+    
+    # Riformatta
+    parts = str(processes_str).split("|")
+    new_parts = []
+    for part in parts:
+        part = part.strip()
+        match = re.match(r'(.+?)\s+([\d.]+%)', part)
+        if match:
+            proc_name = match.group(1).strip()
+            pct = match.group(2)
+            # Se il processo e' in ITK1, rinomina
+            if proc_name.lower() in itk1_procs and proc_name in ITK1_DISPLAY_NAMES:
+                proc_name = ITK1_DISPLAY_NAMES[proc_name]
+            new_parts.append(f"{proc_name} {pct}")
+        else:
+            new_parts.append(part)
+    
+    return " | ".join(new_parts)
 
 def extract_processes_list(processes_str):
     """Estrae lista di (nome_processo, percentuale) dalla stringa."""
@@ -92,11 +128,9 @@ if df_all is None or len(dates_available) == 0:
 
 # === SIDEBAR FILTRI ===
 st.sidebar.title("Filtri")
-
 last_refresh = max(dates_available)
 st.sidebar.metric("Ultimo Refresh", last_refresh.strftime("%d/%m/%Y"))
 
-# Selettore periodo
 date_range = st.sidebar.date_input(
     "Periodo",
     value=(min(dates_available), max(dates_available)),
@@ -108,13 +142,9 @@ if isinstance(date_range, tuple) and len(date_range) == 2:
 else:
     start_date = end_date = date_range
 
-# Filtro manager
 managers = sorted(df_all["manager_alias"].dropna().unique().tolist())
 selected_managers = st.sidebar.multiselect("Manager", managers, default=[])
-
-# Soglia rotazione
 soglia_rotazione = st.sidebar.slider("Soglia rotazione critica (%)", 0, 100, 20, 5)
-
 
 # === FILTRAGGIO DATI ===
 df_filtered = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
@@ -122,27 +152,28 @@ if selected_managers:
     df_filtered = df_filtered[df_filtered["manager_alias"].isin(selected_managers)]
 
 # === CALCOLI ===
-# Media per persona nel periodo
 df_person = df_filtered.groupby("login").agg({
     "RotationPercent": "mean",
     "TotalHours": "mean",
     "DifferentProcesses": "mean",
     "Processes_7d_weighted": "last",
+    "ITK1_Processes_7d": "last",
     "manager_alias": "last",
     "Limitazione": "last",
     "RotationSeverity": "last",
     "ITK1_HoursPercent": "mean",
 }).reset_index()
 
-# Calcola % NIOSH alto per persona
 df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
+
+# Aggiungi colonna processi formattata (con PICK SDC e SDC DOCK)
+df_person["Processi_Display"] = df_person.apply(
+    lambda row: format_processes_display(row["Processes_7d_weighted"], row["ITK1_Processes_7d"]), axis=1
+)
 
 # === TABS ===
 tab_main, tab_grafici = st.tabs(["📊 Dati", "📈 Grafici e Andamenti"])
 
-# =====================
-# TAB PRINCIPALE
-# =====================
 with tab_main:
     st.title("Dashboard Rotazione AAs")
     
@@ -162,15 +193,14 @@ with tab_main:
         st.metric("AAs >50% su NIOSH alto", f"{n_niosh_alto}")
     with kpi4:
         st.metric("AAs totali", f"{n_totale}")
-
-
+    
     st.divider()
     
-    # --- SEZIONE 1: AAs con >50% tempo su processi NIOSH alto ---
+    # --- SEZIONE 1: AAs con >50% tempo su NIOSH alto ---
     st.subheader("🔴 AAs con >50% del tempo su processi NIOSH > 2")
     df_niosh_alert = df_person[df_person["PctNioshAlto"] > 50].sort_values("PctNioshAlto", ascending=False)
     if len(df_niosh_alert) > 0:
-        df_show = df_niosh_alert[["login", "manager_alias", "PctNioshAlto", "RotationPercent", "Processes_7d_weighted"]].copy()
+        df_show = df_niosh_alert[["login", "manager_alias", "PctNioshAlto", "RotationPercent", "Processi_Display"]].copy()
         df_show["RotationPercent"] = (df_show["RotationPercent"] * 100).round(1)
         df_show["PctNioshAlto"] = df_show["PctNioshAlto"].round(1)
         df_show = df_show.rename(columns={
@@ -178,7 +208,7 @@ with tab_main:
             "manager_alias": "Manager",
             "PctNioshAlto": "% Tempo NIOSH alto",
             "RotationPercent": "Rotazione %",
-            "Processes_7d_weighted": "Processi (ultimi 7gg)",
+            "Processi_Display": "Processi (ultimi 7gg)",
         })
         st.dataframe(df_show, use_container_width=True, hide_index=True)
     else:
@@ -186,25 +216,22 @@ with tab_main:
     
     st.divider()
     
-    # --- SEZIONE 2: Rotazione % media (filtrabile per manager) ---
+    # --- SEZIONE 2: Rotazione % media ---
     st.subheader("📋 Rotazione % media per AAs")
     df_rotation = df_person[["login", "manager_alias", "RotationPercent", "DifferentProcesses", "PctNioshAlto"]].copy()
     df_rotation["RotationPercent"] = (df_rotation["RotationPercent"] * 100).round(1)
     df_rotation["PctNioshAlto"] = df_rotation["PctNioshAlto"].round(1)
     df_rotation = df_rotation.sort_values("RotationPercent", ascending=True)
     df_rotation = df_rotation.rename(columns={
-        "login": "Login",
-        "manager_alias": "Manager",
-        "RotationPercent": "Rotazione %",
-        "DifferentProcesses": "N° Processi",
+        "login": "Login", "manager_alias": "Manager",
+        "RotationPercent": "Rotazione %", "DifferentProcesses": "N° Processi",
         "PctNioshAlto": "% NIOSH alto",
     })
     st.dataframe(df_rotation, use_container_width=True, hide_index=True)
 
-
     st.divider()
     
-    # --- SEZIONE 3: % AAs sotto soglia ---
+    # --- SEZIONE 3: AAs sotto soglia ---
     st.subheader(f"⚠️ AAs con rotazione < {soglia_rotazione}%")
     df_sotto = df_person[df_person["RotationPercent"] * 100 < soglia_rotazione].sort_values("RotationPercent")
     if len(df_sotto) > 0:
@@ -214,10 +241,8 @@ with tab_main:
             lambda x: "Sì" if x and str(x) not in ("", "nan", "0") else "No"
         )
         df_sotto_show = df_sotto_show.rename(columns={
-            "login": "Login",
-            "manager_alias": "Manager",
-            "RotationPercent": "Rotazione %",
-            "RotationSeverity": "Severità",
+            "login": "Login", "manager_alias": "Manager",
+            "RotationPercent": "Rotazione %", "RotationSeverity": "Severità",
         })
         st.dataframe(df_sotto_show[["Login", "Manager", "Rotazione %", "Severità", "Ha Limitazione"]], 
                      use_container_width=True, hide_index=True)
@@ -226,67 +251,51 @@ with tab_main:
     
     st.divider()
     
-    # --- SEZIONE 4: Rotation alert per manager (dipartimento) ---
+    # --- SEZIONE 4: Rotation alert per manager ---
     st.subheader("🏢 Rotation Alert per Manager")
     df_alert_mgr = df_person[df_person["RotationPercent"] * 100 < soglia_rotazione].groupby("manager_alias").agg(
         N_AAs_sotto_soglia=("login", "count"),
         Rotazione_media=("RotationPercent", "mean"),
     ).reset_index()
     df_alert_mgr["Rotazione_media"] = (df_alert_mgr["Rotazione_media"] * 100).round(1)
-    # Aggiungi totale AAs per manager
     totale_per_mgr = df_person.groupby("manager_alias")["login"].count().reset_index()
     totale_per_mgr.columns = ["manager_alias", "Totale_AAs"]
     df_alert_mgr = df_alert_mgr.merge(totale_per_mgr, on="manager_alias", how="left")
     df_alert_mgr["% sotto soglia"] = (df_alert_mgr["N_AAs_sotto_soglia"] / df_alert_mgr["Totale_AAs"] * 100).round(0)
     df_alert_mgr = df_alert_mgr.sort_values("N_AAs_sotto_soglia", ascending=False)
     df_alert_mgr = df_alert_mgr.rename(columns={
-        "manager_alias": "Manager",
-        "N_AAs_sotto_soglia": "AAs sotto soglia",
-        "Rotazione_media": "Rotazione media %",
-        "Totale_AAs": "Totale AAs",
+        "manager_alias": "Manager", "N_AAs_sotto_soglia": "AAs sotto soglia",
+        "Rotazione_media": "Rotazione media %", "Totale_AAs": "Totale AAs",
     })
     st.dataframe(df_alert_mgr[["Manager", "AAs sotto soglia", "Totale AAs", "% sotto soglia", "Rotazione media %"]], 
                  use_container_width=True, hide_index=True)
-
-
+    
     st.divider()
     
     # --- SEZIONE 5: Processi top offender ---
     st.subheader("🎯 Processi Top Offender (rotazione peggiore)")
-    # Per ogni persona, prendi il processo principale e la sua rotazione
     process_stats = []
     for _, row in df_person.iterrows():
         procs = extract_processes_list(row["Processes_7d_weighted"])
         if procs:
-            main_proc = procs[0][0]  # Processo con più ore
+            main_proc = procs[0][0]
             main_pct = procs[0][1]
-            process_stats.append({
-                "Processo": main_proc,
-                "Rotazione": row["RotationPercent"],
-                "MainShare": main_pct,
-            })
+            process_stats.append({"Processo": main_proc, "Rotazione": row["RotationPercent"], "MainShare": main_pct})
     
     if process_stats:
         df_proc_stats = pd.DataFrame(process_stats)
-        # Aggrega per processo: media rotazione di chi lo ha come principale
         df_proc_agg = df_proc_stats.groupby("Processo").agg(
-            N_AAs=("Rotazione", "count"),
-            Rotazione_media=("Rotazione", "mean"),
-            Share_media=("MainShare", "mean"),
+            N_AAs=("Rotazione", "count"), Rotazione_media=("Rotazione", "mean"), Share_media=("MainShare", "mean"),
         ).reset_index()
         df_proc_agg["Rotazione_media"] = (df_proc_agg["Rotazione_media"] * 100).round(1)
         df_proc_agg["Share_media"] = df_proc_agg["Share_media"].round(1)
-        # Filtra solo processi con almeno 3 persone
         df_proc_agg = df_proc_agg[df_proc_agg["N_AAs"] >= 3]
         df_proc_agg = df_proc_agg.sort_values("Rotazione_media", ascending=True).head(15)
         df_proc_agg = df_proc_agg.rename(columns={
-            "Processo": "Processo Principale",
-            "N_AAs": "N° AAs",
-            "Rotazione_media": "Rotazione Media %",
-            "Share_media": "% Tempo Medio",
+            "Processo": "Processo Principale", "N_AAs": "N° AAs",
+            "Rotazione_media": "Rotazione Media %", "Share_media": "% Tempo Medio",
         })
         st.dataframe(df_proc_agg, use_container_width=True, hide_index=True)
-
 
 # =====================
 # TAB GRAFICI
@@ -294,17 +303,13 @@ with tab_main:
 with tab_grafici:
     st.title("📈 Grafici e Andamenti")
     
-    # --- Trend rotazione media nel tempo ---
     st.subheader("Trend Rotazione Media")
     if len(dates_available) > 1:
-        # Applica filtro manager anche qui
         df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
         if selected_managers:
             df_trend_base = df_trend_base[df_trend_base["manager_alias"].isin(selected_managers)]
         
-        df_trend = df_trend_base.groupby("snapshot_date").agg({
-            "RotationPercent": "mean",
-        }).reset_index()
+        df_trend = df_trend_base.groupby("snapshot_date").agg({"RotationPercent": "mean"}).reset_index()
         df_trend["RotationPercent"] = df_trend["RotationPercent"] * 100
         df_trend = df_trend.rename(columns={"snapshot_date": "Data", "RotationPercent": "Rotazione Media %"})
         st.line_chart(df_trend.set_index("Data")["Rotazione Media %"])
@@ -313,7 +318,6 @@ with tab_grafici:
     
     st.divider()
     
-    # --- Trend % AAs sotto soglia ---
     st.subheader(f"Trend % AAs sotto soglia ({soglia_rotazione}%)")
     if len(dates_available) > 1:
         trend_soglia = []
@@ -330,7 +334,6 @@ with tab_grafici:
     
     st.divider()
     
-    # --- Trend % tempo su NIOSH alto ---
     st.subheader("Trend % Tempo Medio su Processi NIOSH > 2")
     if len(dates_available) > 1:
         trend_niosh = []
@@ -345,9 +348,7 @@ with tab_grafici:
     
     st.divider()
     
-    # --- Distribuzione rotazione (istogramma) ---
     st.subheader("Distribuzione Rotazione AAs")
-    import numpy as np
     hist_data = (df_person["RotationPercent"] * 100).clip(0, 100)
     bins = list(range(0, 105, 10))
     hist_counts, _ = np.histogram(hist_data, bins=bins)
