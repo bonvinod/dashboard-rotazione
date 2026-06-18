@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 DATA_DIR = "data"
 
 # Processi con NIOSH > 2 (scenario peggiore) e loro nomi nello snapshot
-# Pick e Palletize-Case contano come NIOSH alto SOLO se in area ITK1
+# Pick e Palletize-Case contano come NIOSH >2 SOLO se in area ITK1
 PROCESSI_NIOSH_ALTO_NON_ITK1 = {
     "Robotics Operator": "CORRAL OPERATOR / PID OPERATOR (2.32)",
     "Cart Handler Stow": "RUNNER STOW (2.05)",
@@ -60,7 +60,7 @@ def calc_niosh_alto_pct(row):
             if match:
                 itk1_procs.add(match.group(1).strip().lower())
     
-    # Processi non-ITK1 con NIOSH alto (escludi quelli gia' contati in ITK1)
+    # Processi non-ITK1 con NIOSH >2 (escludi quelli gia' contati in ITK1)
     non_itk1_pct = 0.0
     if processes_str and not pd.isna(processes_str):
         parts = str(processes_str).split("|")
@@ -75,7 +75,7 @@ def calc_niosh_alto_pct(row):
                             non_itk1_pct += float(match.group(1))
                     break
     
-    # ITK1 (SDC) - conta solo Pick e Palletize-Case in ITK1 come NIOSH alto
+    # ITK1 (SDC) - conta solo Pick e Palletize-Case in ITK1 come NIOSH >2
     # Water Spider e altri in ITK1 NON sono NIOSH > 2
     itk1_niosh_pct = 0.0
     if itk1_procs_str and not pd.isna(itk1_procs_str):
@@ -210,13 +210,13 @@ with tab_main:
     with kpi2:
         st.metric(f"AAs sotto {soglia_rotazione}%", f"{n_sotto_soglia} ({pct_sotto_soglia:.0f}%)")
     with kpi3:
-        st.metric("AAs >50% su NIOSH alto", f"{n_niosh_alto}")
+        st.metric("AAs >50% su NIOSH >2", f"{n_niosh_alto}")
     with kpi4:
         st.metric("AAs totali", f"{n_totale}")
     
     st.divider()
     
-    # --- SEZIONE 1: AAs con >50% tempo su NIOSH alto ---
+    # --- SEZIONE 1: AAs con >50% tempo su NIOSH >2 ---
     st.subheader("🔴 AAs con >50% del tempo su processi NIOSH > 2")
     df_niosh_alert = df_person[df_person["PctNioshAlto"] > 50].sort_values("PctNioshAlto", ascending=False)
     if len(df_niosh_alert) > 0:
@@ -226,7 +226,7 @@ with tab_main:
         df_show = df_show.rename(columns={
             "login": "Login",
             "manager_alias": "Manager",
-            "PctNioshAlto": "% Tempo NIOSH alto",
+            "PctNioshAlto": "% Tempo NIOSH >2",
             "RotationPercent": "Rotazione %",
             "Processi_Display": "Processi (ultimi 7gg)",
         })
@@ -245,7 +245,7 @@ with tab_main:
     df_rotation = df_rotation.rename(columns={
         "login": "Login", "manager_alias": "Manager",
         "RotationPercent": "Rotazione %", "DifferentProcesses": "N° Processi",
-        "PctNioshAlto": "% NIOSH alto",
+        "PctNioshAlto": "% NIOSH >2",
     })
     st.dataframe(df_rotation, use_container_width=True, hide_index=True)
 
