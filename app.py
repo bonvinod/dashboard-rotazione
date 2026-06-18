@@ -216,11 +216,11 @@ with tab_main:
     with kpi1:
         st.metric("Rotazione Media", f"{rotation_media:.1f}%")
     with kpi2:
-        st.metric(f"AAs sotto {soglia_rotazione}%", f"{n_sotto_soglia} ({pct_sotto_soglia:.0f}%)")
+        st.metric(f"AAs con rotazione < {soglia_rotazione}%", f"{n_sotto_soglia} ({pct_sotto_soglia:.0f}%)")
     with kpi3:
-        st.metric("AAs >50% su NIOSH >2", f"{n_niosh_alto}")
+        st.metric("AAs con >50% ore su processi NIOSH >2", f"{n_niosh_alto}")
     with kpi4:
-        st.metric("AAs totali", f"{n_totale}")
+        st.metric("AAs attivi (ultimi 7gg)", f"{n_totale}")
     
     st.divider()
     
