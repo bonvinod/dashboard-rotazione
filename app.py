@@ -317,7 +317,7 @@ with tab_main:
         ).reset_index()
         df_proc_agg["Rotazione_media"] = (df_proc_agg["Rotazione_media"] * 100).round(1)
         df_proc_agg["Share_media"] = df_proc_agg["Share_media"].round(1)
-        df_proc_agg = df_proc_agg[df_proc_agg["N_AAs"] >= 3]
+        df_proc_agg = df_proc_agg[df_proc_agg["N_AAs"] >= 30]
         df_proc_agg = df_proc_agg.sort_values("Rotazione_media", ascending=True).head(15)
         df_proc_agg = df_proc_agg.rename(columns={
             "Processo": "Processo Principale", "N_AAs": "N° AAs",
