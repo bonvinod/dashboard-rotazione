@@ -9,14 +9,15 @@ from datetime import datetime, timedelta
 DATA_DIR = "data"
 
 # Processi con NIOSH > 2 (scenario peggiore) e loro nomi nello snapshot
-PROCESSI_NIOSH_ALTO = {
+# NOTA: Pick e Palletize-Case contano come NIOSH alto SOLO se in area ITK1 (SDC)
+# Pick normale (non ITK1) ha NIOSH < 2, quindi non va incluso qui
+PROCESSI_NIOSH_ALTO_NON_ITK1 = {
     "Robotics Operator": "CORRAL OPERATOR / PID OPERATOR (2.32)",
     "Cart Handler Stow": "RUNNER STOW (2.05)",
     "Fluid Loader": "SCARICO FLUIDO (2.51)",
-    "Pick": "SDC (2.11)",
-    "Palletize - Case": "SDC (2.11)",
     "Water Spider": "WATERSPIDER/RUNNER (2.53)",
 }
+# Per SDC (Pick/Palletize-Case in ITK1), usiamo la colonna ITK1_HoursPercent
 
 st.set_page_config(page_title="Rotazione AAs - Dashboard", layout="wide")
 
@@ -44,21 +45,30 @@ def load_all_snapshots():
         return None, []
     return pd.concat(all_data, ignore_index=True), sorted(dates_available)
 
-def calc_niosh_alto_pct(processes_str):
-    """Calcola % tempo su processi con NIOSH > 2."""
-    if not processes_str or pd.isna(processes_str):
-        return 0.0
-    total_pct = 0.0
-    parts = str(processes_str).split("|")
-    for part in parts:
-        part = part.strip()
-        for target in PROCESSI_NIOSH_ALTO.keys():
-            if target.lower() in part.lower():
-                match = re.search(r'([\d.]+)%', part)
-                if match:
-                    total_pct += float(match.group(1))
-                break
-    return total_pct
+def calc_niosh_alto_pct(row):
+    """Calcola % tempo su processi con NIOSH > 2 (non-ITK1 + ITK1)."""
+    processes_str = row.get("Processes_7d_weighted", "")
+    itk1_pct = row.get("ITK1_HoursPercent", 0)
+    
+    # Parte 1: processi non-ITK1 con NIOSH alto
+    non_itk1_pct = 0.0
+    if processes_str and not pd.isna(processes_str):
+        parts = str(processes_str).split("|")
+        for part in parts:
+            part = part.strip()
+            for target in PROCESSI_NIOSH_ALTO_NON_ITK1.keys():
+                if target.lower() in part.lower():
+                    match = re.search(r'([\d.]+)%', part)
+                    if match:
+                        non_itk1_pct += float(match.group(1))
+                    break
+    
+    # Parte 2: ITK1 (SDC) - usa ITK1_HoursPercent (è già un ratio 0-1)
+    itk1_pct_value = 0.0
+    if itk1_pct and not pd.isna(itk1_pct):
+        itk1_pct_value = float(itk1_pct) * 100  # Converti a percentuale
+    
+    return non_itk1_pct + itk1_pct_value
 
 def extract_processes_list(processes_str):
     """Estrae lista di (nome_processo, percentuale) dalla stringa."""
@@ -121,10 +131,11 @@ df_person = df_filtered.groupby("login").agg({
     "manager_alias": "last",
     "Limitazione": "last",
     "RotationSeverity": "last",
+    "ITK1_HoursPercent": "mean",
 }).reset_index()
 
 # Calcola % NIOSH alto per persona
-df_person["PctNioshAlto"] = df_person["Processes_7d_weighted"].apply(calc_niosh_alto_pct)
+df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
 
 # === TABS ===
 tab_main, tab_grafici = st.tabs(["📊 Dati", "📈 Grafici e Andamenti"])
@@ -325,7 +336,7 @@ with tab_grafici:
         trend_niosh = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
             df_day = df_trend_base[df_trend_base["snapshot_date"] == date]
-            pct_niosh = df_day["Processes_7d_weighted"].apply(calc_niosh_alto_pct).mean()
+            pct_niosh = df_day.apply(calc_niosh_alto_pct, axis=1).mean()
             trend_niosh.append({"Data": date, "% Tempo NIOSH > 2": pct_niosh})
         df_trend_niosh = pd.DataFrame(trend_niosh)
         st.line_chart(df_trend_niosh.set_index("Data"))
