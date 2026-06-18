@@ -194,6 +194,26 @@ df_person = df_filtered.groupby("login").agg({
 
 df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
 
+# Aggiungi colonna processo principale
+def get_main_process(processes_str):
+    if not processes_str or pd.isna(processes_str):
+        return ""
+    parts = str(processes_str).split("|")
+    if parts:
+        match = re.match(r'(.+?)\s+[\d.]+%', parts[0].strip())
+        if match:
+            return match.group(1).strip()
+    return ""
+
+df_person["MainProcess"] = df_person["Processes_7d_weighted"].apply(get_main_process)
+
+# Conta AAs per processo principale e identifica processi "operations" (>= 30 AAs)
+process_counts = df_person["MainProcess"].value_counts()
+processi_operations = set(process_counts[process_counts >= 30].index)
+
+# Flag: e' un AA di operations?
+df_person["IsOperations"] = df_person["MainProcess"].isin(processi_operations)
+
 # Aggiungi colonna processi formattata (con PICK SDC e SDC DOCK)
 df_person["Processi_Display"] = df_person.apply(
     lambda row: format_processes_display(row["Processes_7d_weighted"], row["ITK1_Processes_7d"]), axis=1
@@ -261,7 +281,7 @@ with tab_main:
     
     # --- SEZIONE 3: AAs sotto soglia ---
     st.subheader(f"⚠️ AAs con rotazione < {soglia_rotazione}%")
-    df_sotto = df_person[df_person["RotationPercent"] * 100 < soglia_rotazione].sort_values("RotationPercent")
+    df_sotto = df_person[(df_person["RotationPercent"] * 100 < soglia_rotazione) & (df_person["IsOperations"])].sort_values("RotationPercent")
     if len(df_sotto) > 0:
         df_sotto_show = df_sotto[["login", "manager_alias", "RotationPercent", "RotationSeverity", "Limitazione"]].copy()
         df_sotto_show["RotationPercent"] = (df_sotto_show["RotationPercent"] * 100).round(1)
