@@ -18,12 +18,7 @@ PROCESSI_NIOSH_ALTO_NON_ITK1 = {
     "Water Spider": "WATERSPIDER/RUNNER (2.53)",
 }
 
-# Mapping nomi ITK1 per visualizzazione
-# Pick in ITK1 = "PICK SDC", Palletize-Case in ITK1 = "SDC DOCK"
-ITK1_DISPLAY_NAMES = {
-    "Pick": "PICK SDC",
-    "Palletize - Case": "SDC DOCK",
-}
+# Per SDC: Pick e Palletize-Case in ITK1 hanno NIOSH > 2
 
 st.set_page_config(page_title="Rotazione AAs - Dashboard", layout="wide")
 
@@ -52,10 +47,20 @@ def load_all_snapshots():
     return pd.concat(all_data, ignore_index=True), sorted(dates_available)
 
 def calc_niosh_alto_pct(row):
-    """Calcola % tempo su processi con NIOSH > 2 (non-ITK1 + ITK1)."""
+    """Calcola % tempo su processi con NIOSH > 2 (senza doppio conteggio ITK1)."""
     processes_str = row.get("Processes_7d_weighted", "")
+    itk1_procs_str = row.get("ITK1_Processes_7d", "")
     itk1_pct = row.get("ITK1_HoursPercent", 0)
     
+    # Determina quali processi sono in ITK1
+    itk1_procs = set()
+    if itk1_procs_str and not pd.isna(itk1_procs_str):
+        for part in str(itk1_procs_str).split("|"):
+            match = re.match(r'(.+?)\s+[\d.]+%', part.strip())
+            if match:
+                itk1_procs.add(match.group(1).strip().lower())
+    
+    # Processi non-ITK1 con NIOSH alto (escludi quelli gia' contati in ITK1)
     non_itk1_pct = 0.0
     if processes_str and not pd.isna(processes_str):
         parts = str(processes_str).split("|")
@@ -63,20 +68,35 @@ def calc_niosh_alto_pct(row):
             part = part.strip()
             for target in PROCESSI_NIOSH_ALTO_NON_ITK1.keys():
                 if target.lower() in part.lower():
-                    match = re.search(r'([\d.]+)%', part)
-                    if match:
-                        non_itk1_pct += float(match.group(1))
+                    # Non contare se questo processo e' gia' in ITK1
+                    if target.lower() not in itk1_procs:
+                        match = re.search(r'([\d.]+)%', part)
+                        if match:
+                            non_itk1_pct += float(match.group(1))
                     break
     
-    itk1_pct_value = 0.0
-    if itk1_pct and not pd.isna(itk1_pct):
-        itk1_pct_value = float(itk1_pct) * 100
+    # ITK1 (SDC) - conta solo Pick e Palletize-Case in ITK1 come NIOSH alto
+    # Water Spider e altri in ITK1 NON sono NIOSH > 2
+    itk1_niosh_pct = 0.0
+    if itk1_procs_str and not pd.isna(itk1_procs_str):
+        parts = str(itk1_procs_str).split("|")
+        for part in parts:
+            part = part.strip()
+            match = re.match(r'(.+?)\s+([\d.]+)%', part)
+            if match:
+                proc_name = match.group(1).strip().lower()
+                proc_pct = float(match.group(2))
+                # Solo Pick e Palletize-Case in ITK1 hanno NIOSH > 2 (SDC)
+                if proc_name in ("pick", "palletize - case"):
+                    # La % e' relativa alle ore ITK1, devo convertirla in % sul totale
+                    if itk1_pct and not pd.isna(itk1_pct):
+                        itk1_niosh_pct += (proc_pct / 100) * float(itk1_pct) * 100
     
-    return non_itk1_pct + itk1_pct_value
+    return non_itk1_pct + itk1_niosh_pct
 
 def format_processes_display(processes_str, itk1_processes_str):
     """Riformatta i nomi dei processi per la visualizzazione.
-    Pick in ITK1 -> PICK SDC, Palletize-Case in ITK1 -> SDC DOCK."""
+    Tutto cio' che e' in ITK1 viene etichettato con 'SDC' davanti."""
     if not processes_str or pd.isna(processes_str):
         return ""
     
@@ -97,9 +117,9 @@ def format_processes_display(processes_str, itk1_processes_str):
         if match:
             proc_name = match.group(1).strip()
             pct = match.group(2)
-            # Se il processo e' in ITK1, rinomina
-            if proc_name.lower() in itk1_procs and proc_name in ITK1_DISPLAY_NAMES:
-                proc_name = ITK1_DISPLAY_NAMES[proc_name]
+            # Se il processo e' in ITK1, aggiungi "SDC" davanti
+            if proc_name.lower() in itk1_procs:
+                proc_name = f"SDC {proc_name}"
             new_parts.append(f"{proc_name} {pct}")
         else:
             new_parts.append(part)
