@@ -10,15 +10,23 @@ from datetime import datetime, timedelta
 DATA_DIR = "data"
 
 # Processi con NIOSH > 2 (scenario peggiore) e loro nomi nello snapshot
-# Pick e Palletize-Case contano come NIOSH >2 SOLO se in area ITK1
+# Questi contano come NIOSH >2 anche FUORI da ITK1
 PROCESSI_NIOSH_ALTO_NON_ITK1 = {
-    "Robotics Operator": "CORRAL OPERATOR / PID OPERATOR (2.32)",
     "Cart Handler Stow": "RUNNER STOW (2.05)",
     "Fluid Loader": "SCARICO FLUIDO (2.51)",
     "Water Spider": "WATERSPIDER/RUNNER (2.53)",
 }
 
-# Per SDC: Pick e Palletize-Case in ITK1 hanno NIOSH > 2
+# Processi in ITK1 con NIOSH > 2 (contano SOLO se svolti in area ITK1)
+# chiave = nome processo nello snapshot (lowercase), valore = nome da mostrare in dashboard
+PROCESSI_NIOSH_ALTO_ITK1 = {
+    "pick": "SDC PICK",
+    "palletize - case": "SDC PALLETIZE",
+    "case transfer in": "SDC STOW",
+    "cart/pallet builder": "SDC CART BUILDER",
+    "line load injection": "SDC SCARICO FLUIDO",
+    "cart handler trans": "SDC RUNNER STOW",
+}
 
 st.set_page_config(page_title="Rotazione AAs - Dashboard", layout="wide")
 
@@ -75,8 +83,7 @@ def calc_niosh_alto_pct(row):
                             non_itk1_pct += float(match.group(1))
                     break
     
-    # ITK1 (SDC) - conta solo Pick e Palletize-Case in ITK1 come NIOSH >2
-    # Water Spider e altri in ITK1 NON sono NIOSH > 2
+    # ITK1: conta i processi specificati in PROCESSI_NIOSH_ALTO_ITK1
     itk1_niosh_pct = 0.0
     if itk1_procs_str and not pd.isna(itk1_procs_str):
         parts = str(itk1_procs_str).split("|")
@@ -86,9 +93,7 @@ def calc_niosh_alto_pct(row):
             if match:
                 proc_name = match.group(1).strip().lower()
                 proc_pct = float(match.group(2))
-                # Solo Pick e Palletize-Case in ITK1 hanno NIOSH > 2 (SDC)
-                if proc_name in ("pick", "palletize - case"):
-                    # La % e' relativa alle ore ITK1, devo convertirla in % sul totale
+                if proc_name in PROCESSI_NIOSH_ALTO_ITK1:
                     if itk1_pct and not pd.isna(itk1_pct):
                         itk1_niosh_pct += (proc_pct / 100) * float(itk1_pct) * 100
     
@@ -96,7 +101,7 @@ def calc_niosh_alto_pct(row):
 
 def format_processes_display(processes_str, itk1_processes_str):
     """Riformatta i nomi dei processi per la visualizzazione.
-    Tutto cio' che e' in ITK1 viene etichettato con 'SDC' davanti."""
+    Processi in ITK1 vengono rinominati con il nome SDC specifico."""
     if not processes_str or pd.isna(processes_str):
         return ""
     
@@ -117,9 +122,12 @@ def format_processes_display(processes_str, itk1_processes_str):
         if match:
             proc_name = match.group(1).strip()
             pct = match.group(2)
-            # Se il processo e' in ITK1, aggiungi "SDC" davanti
+            # Se il processo e' in ITK1, usa il nome specifico dal dizionario o prefisso SDC
             if proc_name.lower() in itk1_procs:
-                proc_name = f"SDC {proc_name}"
+                if proc_name.lower() in PROCESSI_NIOSH_ALTO_ITK1:
+                    proc_name = PROCESSI_NIOSH_ALTO_ITK1[proc_name.lower()]
+                else:
+                    proc_name = f"SDC {proc_name}"
             new_parts.append(f"{proc_name} {pct}")
         else:
             new_parts.append(part)
