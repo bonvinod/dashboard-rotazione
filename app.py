@@ -366,7 +366,7 @@ with tab_grafici:
     
     st.divider()
     
-    st.subheader(f"Trend % AAs sotto soglia ({soglia_rotazione}%)")
+    st.subheader(f"Quanti AAs ruotano meno del {soglia_rotazione}% nel tempo")
     if len(dates_available) > 1:
         trend_soglia = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
@@ -374,7 +374,7 @@ with tab_grafici:
             n_tot = len(df_day)
             n_sotto = (df_day["RotationPercent"] * 100 < soglia_rotazione).sum()
             pct = (n_sotto / n_tot * 100) if n_tot > 0 else 0
-            trend_soglia.append({"Data": date, f"% AAs sotto {soglia_rotazione}%": pct})
+            trend_soglia.append({"Data": date, f"% AAs con rotazione < {soglia_rotazione}%": pct})
         df_trend_soglia = pd.DataFrame(trend_soglia)
         st.line_chart(df_trend_soglia.set_index("Data"))
     else:
