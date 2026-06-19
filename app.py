@@ -245,7 +245,7 @@ with tab_main:
     st.divider()
     
     # --- SEZIONE 1: AAs con >50% tempo su NIOSH >2 ---
-    st.subheader("🔴 Chi passa più del 50% del turno su processi pesanti (NIOSH >2)")
+    st.subheader("🔴 AAs con esposizione >50% a processi NIOSH >2")
     df_niosh_alert = df_person[df_person["PctNioshAlto"] > 50].sort_values("PctNioshAlto", ascending=False)
     if len(df_niosh_alert) > 0:
         df_show = df_niosh_alert[["login", "manager_alias", "PctNioshAlto", "RotationPercent", "Processi_Display"]].copy()
