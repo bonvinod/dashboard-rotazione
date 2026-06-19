@@ -223,7 +223,7 @@ df_person["Processi_Display"] = df_person.apply(
 tab_main, tab_grafici = st.tabs(["📊 Dati", "📈 Grafici e Andamenti"])
 
 with tab_main:
-    st.title("Dashboard Rotazione AAs")
+    st.title("Rotazione Processi - Outbound")
     
     # --- KPI ---
     n_totale = len(df_person)
@@ -245,7 +245,7 @@ with tab_main:
     st.divider()
     
     # --- SEZIONE 1: AAs con >50% tempo su NIOSH >2 ---
-    st.subheader("🔴 AAs con >50% del tempo su processi NIOSH > 2")
+    st.subheader("🔴 Chi passa più del 50% del turno su processi pesanti (NIOSH >2)")
     df_niosh_alert = df_person[df_person["PctNioshAlto"] > 50].sort_values("PctNioshAlto", ascending=False)
     if len(df_niosh_alert) > 0:
         df_show = df_niosh_alert[["login", "manager_alias", "PctNioshAlto", "RotationPercent", "Processi_Display"]].copy()
@@ -265,7 +265,7 @@ with tab_main:
     st.divider()
     
     # --- SEZIONE 2: Rotazione % media ---
-    st.subheader("📋 Rotazione % media per AAs")
+    st.subheader("📋 Dettaglio rotazione per ogni AA")
     df_rotation = df_person[["login", "manager_alias", "RotationPercent", "DifferentProcesses", "PctNioshAlto"]].copy()
     df_rotation["RotationPercent"] = (df_rotation["RotationPercent"] * 100).round(1)
     df_rotation["PctNioshAlto"] = df_rotation["PctNioshAlto"].round(1)
@@ -300,7 +300,7 @@ with tab_main:
     st.divider()
     
     # --- SEZIONE 4: Rotation alert per manager ---
-    st.subheader("🏢 Rotation Alert per Manager")
+    st.subheader("🏢 Situazione per Manager: quanti AAs non ruotano abbastanza")
     df_alert_mgr = df_person[df_person["RotationPercent"] * 100 < soglia_rotazione].groupby("manager_alias").agg(
         N_AAs_sotto_soglia=("login", "count"),
         Rotazione_media=("RotationPercent", "mean"),
@@ -321,7 +321,7 @@ with tab_main:
     st.divider()
     
     # --- SEZIONE 5: Processi top offender ---
-    st.subheader("🎯 Processi Top Offender (rotazione peggiore)")
+    st.subheader("🎯 Processi con la peggior rotazione media")
     process_stats = []
     for _, row in df_person.iterrows():
         procs = extract_processes_list(row["Processes_7d_weighted"])
@@ -349,9 +349,9 @@ with tab_main:
 # TAB GRAFICI
 # =====================
 with tab_grafici:
-    st.title("📈 Grafici e Andamenti")
+    st.title("📈 Andamento nel tempo")
     
-    st.subheader("Trend Rotazione Media")
+    st.subheader("Rotazione media giornaliera")
     if len(dates_available) > 1:
         df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
         if selected_managers:
@@ -382,7 +382,7 @@ with tab_grafici:
     
     st.divider()
     
-    st.subheader("Trend % Tempo Medio su Processi NIOSH > 2")
+    st.subheader("Quanto tempo in media si passa su processi pesanti (NIOSH >2)")
     if len(dates_available) > 1:
         trend_niosh = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
@@ -396,7 +396,7 @@ with tab_grafici:
     
     st.divider()
     
-    st.subheader("Distribuzione Rotazione AAs")
+    st.subheader("Come si distribuisce la rotazione tra gli AAs")
     hist_data = (df_person["RotationPercent"] * 100).clip(0, 100)
     bins = list(range(0, 105, 10))
     hist_counts, _ = np.histogram(hist_data, bins=bins)
