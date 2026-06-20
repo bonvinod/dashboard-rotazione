@@ -405,3 +405,17 @@ with tab_grafici:
         "Numero AAs": hist_counts,
     })
     st.bar_chart(df_hist.set_index("Fascia rotazione (%)"))
+    
+    st.divider()
+    
+    st.subheader("N° di AAs con alert safety (>50% turno su NIOSH >2) — andamento giornaliero")
+    if len(dates_available) > 1:
+        trend_safety = []
+        for date in sorted(df_trend_base["snapshot_date"].unique()):
+            df_day = df_trend_base[df_trend_base["snapshot_date"] == date]
+            n_alert = df_day.apply(calc_niosh_alto_pct, axis=1).gt(50).sum()
+            trend_safety.append({"Data": date, "N° AAs con alert safety": int(n_alert)})
+        df_trend_safety = pd.DataFrame(trend_safety)
+        st.line_chart(df_trend_safety.set_index("Data"))
+    else:
+        st.info("Servono almeno 2 giorni di dati.")
