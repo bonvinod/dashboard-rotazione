@@ -216,7 +216,7 @@ df_person["Processi_Display"] = df_person.apply(
 tab_main, tab_grafici = st.tabs(["📊 Dati", "📈 Grafici e Andamenti"])
 
 with tab_main:
-    st.title("Rotazione Processi - Outbound")
+    st.title("Rotazione Media - MXP5")
     st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
     
     # --- KPI ---
