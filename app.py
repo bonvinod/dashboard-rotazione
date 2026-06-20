@@ -180,18 +180,11 @@ if selected_managers:
     df_filtered = df_filtered[df_filtered["manager_alias"].isin(selected_managers)]
 
 # === CALCOLI ===
-df_person = df_filtered.groupby("login").agg({
-    "RotationPercent": "mean",
-    "TotalHours": "mean",
-    "DifferentProcesses": "mean",
-    "Processes_7d_weighted": "last",
-    "ITK1_Processes_7d": "last",
-    "manager_alias": "last",
-    "Limitazione": "last",
-    "RotationSeverity": "last",
-    "ITK1_HoursPercent": "mean",
-}).reset_index()
+# Per gli alert: usa solo l'ultimo giorno disponibile nel periodo
+latest_date = df_filtered["snapshot_date"].max()
+df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
 
+df_person = df_latest.copy()
 df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
 
 # Aggiungi colonna processo principale
@@ -224,6 +217,7 @@ tab_main, tab_grafici = st.tabs(["📊 Dati", "📈 Grafici e Andamenti"])
 
 with tab_main:
     st.title("Rotazione Processi - Outbound")
+    st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
     
     # --- KPI ---
     n_totale = len(df_person)
