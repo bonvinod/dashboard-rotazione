@@ -351,7 +351,7 @@ with tab_main:
 with tab_grafici:
     st.title("📈 Andamento nel tempo")
     
-    st.subheader("Rotazione media giornaliera")
+    st.subheader("Rotazione media giornaliera (%)")
     if len(dates_available) > 1:
         df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
         if selected_managers:
@@ -359,14 +359,14 @@ with tab_grafici:
         
         df_trend = df_trend_base.groupby("snapshot_date").agg({"RotationPercent": "mean"}).reset_index()
         df_trend["RotationPercent"] = df_trend["RotationPercent"] * 100
-        df_trend = df_trend.rename(columns={"snapshot_date": "Data", "RotationPercent": "Rotazione Media %"})
-        st.line_chart(df_trend.set_index("Data")["Rotazione Media %"])
+        df_trend = df_trend.rename(columns={"snapshot_date": "Data", "RotationPercent": "Rotazione media (%)"})
+        st.line_chart(df_trend.set_index("Data")["Rotazione media (%)"])
     else:
         st.info("Servono almeno 2 giorni di dati per mostrare il trend.")
     
     st.divider()
     
-    st.subheader(f"Quanti AAs ruotano meno del {soglia_rotazione}% nel tempo")
+    st.subheader(f"% di AAs con rotazione inferiore al {soglia_rotazione}% — andamento giornaliero")
     if len(dates_available) > 1:
         trend_soglia = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
@@ -374,7 +374,7 @@ with tab_grafici:
             n_tot = len(df_day)
             n_sotto = (df_day["RotationPercent"] * 100 < soglia_rotazione).sum()
             pct = (n_sotto / n_tot * 100) if n_tot > 0 else 0
-            trend_soglia.append({"Data": date, f"% AAs con rotazione < {soglia_rotazione}%": pct})
+            trend_soglia.append({"Data": date, "% sul totale AAs": pct})
         df_trend_soglia = pd.DataFrame(trend_soglia)
         st.line_chart(df_trend_soglia.set_index("Data"))
     else:
@@ -382,13 +382,13 @@ with tab_grafici:
     
     st.divider()
     
-    st.subheader("Quanto tempo in media si passa su processi pesanti (NIOSH >2)")
+    st.subheader("% media del turno spesa su processi NIOSH >2 — andamento giornaliero")
     if len(dates_available) > 1:
         trend_niosh = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
             df_day = df_trend_base[df_trend_base["snapshot_date"] == date]
             pct_niosh = df_day.apply(calc_niosh_alto_pct, axis=1).mean()
-            trend_niosh.append({"Data": date, "% Tempo NIOSH > 2": pct_niosh})
+            trend_niosh.append({"Data": date, "% del turno su NIOSH >2": pct_niosh})
         df_trend_niosh = pd.DataFrame(trend_niosh)
         st.line_chart(df_trend_niosh.set_index("Data"))
     else:
@@ -396,12 +396,12 @@ with tab_grafici:
     
     st.divider()
     
-    st.subheader("Come si distribuisce la rotazione tra gli AAs")
+    st.subheader("Distribuzione della rotazione — numero di AAs per fascia (%)")
     hist_data = (df_person["RotationPercent"] * 100).clip(0, 100)
     bins = list(range(0, 105, 10))
     hist_counts, _ = np.histogram(hist_data, bins=bins)
     df_hist = pd.DataFrame({
-        "Fascia Rotazione %": [f"{bins[i]}-{bins[i+1]}%" for i in range(len(bins)-1)],
-        "N° AAs": hist_counts,
+        "Fascia rotazione (%)": [f"{bins[i]}-{bins[i+1]}%" for i in range(len(bins)-1)],
+        "Numero AAs": hist_counts,
     })
-    st.bar_chart(df_hist.set_index("Fascia Rotazione %"))
+    st.bar_chart(df_hist.set_index("Fascia rotazione (%)"))
