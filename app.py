@@ -184,7 +184,8 @@ if selected_managers:
 latest_date = df_filtered["snapshot_date"].max()
 df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
 
-df_person = df_latest.copy()
+# Filtro minimo ore: escludi chi ha lavorato meno di 16 ore
+df_person = df_latest[df_latest["TotalHours"] >= 16].copy()
 df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
 
 # Aggiungi colonna processo principale
@@ -221,7 +222,11 @@ with tab_main:
     
     # --- KPI ---
     n_totale = len(df_person)
-    rotation_media = df_person["RotationPercent"].mean() * 100
+    # Media pesata per ore lavorate
+    if df_person["TotalHours"].sum() > 0:
+        rotation_media = (df_person["RotationPercent"] * df_person["TotalHours"]).sum() / df_person["TotalHours"].sum() * 100
+    else:
+        rotation_media = 0
     n_sotto_soglia = (df_person["RotationPercent"] * 100 < soglia_rotazione).sum()
     pct_sotto_soglia = (n_sotto_soglia / n_totale * 100) if n_totale > 0 else 0
     n_niosh_alto = (df_person["PctNioshAlto"] > 50).sum()
@@ -350,10 +355,20 @@ with tab_grafici:
         df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
         if selected_managers:
             df_trend_base = df_trend_base[df_trend_base["manager_alias"].isin(selected_managers)]
+        # Filtra minimo ore
+        df_trend_base = df_trend_base[df_trend_base["TotalHours"] >= 16]
         
-        df_trend = df_trend_base.groupby("snapshot_date").agg({"RotationPercent": "mean"}).reset_index()
-        df_trend["RotationPercent"] = df_trend["RotationPercent"] * 100
-        df_trend = df_trend.rename(columns={"snapshot_date": "Data", "RotationPercent": "Rotazione media (%)"})
+        # Media pesata per ore
+        trend_data = []
+        for date in sorted(df_trend_base["snapshot_date"].unique()):
+            df_day = df_trend_base[df_trend_base["snapshot_date"] == date]
+            total_hours = df_day["TotalHours"].sum()
+            if total_hours > 0:
+                weighted_rot = (df_day["RotationPercent"] * df_day["TotalHours"]).sum() / total_hours * 100
+            else:
+                weighted_rot = 0
+            trend_data.append({"Data": date, "Rotazione media (%)": weighted_rot})
+        df_trend = pd.DataFrame(trend_data)
         st.line_chart(df_trend.set_index("Data")["Rotazione media (%)"])
     else:
         st.info("Servono almeno 2 giorni di dati per mostrare il trend.")
