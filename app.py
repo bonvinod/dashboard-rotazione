@@ -186,6 +186,15 @@ df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
 
 # Filtro minimo ore: escludi chi ha lavorato meno di 16 ore
 df_person = df_latest[df_latest["TotalHours"] >= 16].copy()
+
+# Escludi dal conteggio: AA con rotazione < 10% E con limitazione medica
+# (non ruotano per motivi medici, non per cattiva gestione)
+def has_limitation(lim):
+    return lim is not None and not pd.isna(lim) and str(lim).strip() not in ("", "0", "nan")
+
+df_person["HasLimitation"] = df_person["Limitazione"].apply(has_limitation)
+df_person = df_person[~((df_person["RotationPercent"] * 100 < 10) & (df_person["HasLimitation"]))].copy()
+
 df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
 
 # Aggiungi colonna processo principale
