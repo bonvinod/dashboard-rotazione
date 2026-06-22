@@ -315,7 +315,7 @@ with tab_main:
     st.divider()
     
     # --- SEZIONE 5: Processi top offender ---
-    st.subheader("🎯 Processi con la peggior rotazione media")
+    st.subheader("🎯 Processi con più stagnazione")
     process_stats = []
     for _, row in df_person.iterrows():
         procs = extract_processes_list(row["Processes_7d_weighted"])
