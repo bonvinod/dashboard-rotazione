@@ -9,16 +9,12 @@ from datetime import datetime, timedelta
 # === CONFIGURAZIONE ===
 DATA_DIR = "data"
 
-# Processi con NIOSH > 2 (scenario peggiore) e loro nomi nello snapshot
-# Questi contano come NIOSH >2 anche FUORI da ITK1
 PROCESSI_NIOSH_ALTO_NON_ITK1 = {
     "Cart Handler Stow": "RUNNER STOW (2.05)",
     "Fluid Loader": "SCARICO FLUIDO (2.51)",
     "Water Spider": "WATERSPIDER/RUNNER (2.53)",
 }
 
-# Processi in ITK1 con NIOSH > 2 (contano SOLO se svolti in area ITK1)
-# chiave = nome processo nello snapshot (lowercase), valore = nome da mostrare in dashboard
 PROCESSI_NIOSH_ALTO_ITK1 = {
     "pick": "SDC PICK",
     "palletize - case": "SDC PALLETIZE",
@@ -33,7 +29,6 @@ st.set_page_config(page_title="Rotazione AAs - Dashboard", layout="wide")
 # === FUNZIONI ===
 @st.cache_data(ttl=300)
 def load_all_snapshots():
-    """Carica tutti gli snapshot giornalieri."""
     files = sorted(glob.glob(os.path.join(DATA_DIR, "snapshot_*.csv")))
     if not files:
         return None, []
@@ -55,12 +50,10 @@ def load_all_snapshots():
     return pd.concat(all_data, ignore_index=True), sorted(dates_available)
 
 def calc_niosh_alto_pct(row):
-    """Calcola % tempo su processi con NIOSH > 2 (senza doppio conteggio ITK1)."""
     processes_str = row.get("Processes_7d_weighted", "")
     itk1_procs_str = row.get("ITK1_Processes_7d", "")
     itk1_pct = row.get("ITK1_HoursPercent", 0)
     
-    # Determina quali processi sono in ITK1
     itk1_procs = set()
     if itk1_procs_str and not pd.isna(itk1_procs_str):
         for part in str(itk1_procs_str).split("|"):
@@ -68,7 +61,6 @@ def calc_niosh_alto_pct(row):
             if match:
                 itk1_procs.add(match.group(1).strip().lower())
     
-    # Processi non-ITK1 con NIOSH >2 (escludi quelli gia' contati in ITK1)
     non_itk1_pct = 0.0
     if processes_str and not pd.isna(processes_str):
         parts = str(processes_str).split("|")
@@ -76,14 +68,12 @@ def calc_niosh_alto_pct(row):
             part = part.strip()
             for target in PROCESSI_NIOSH_ALTO_NON_ITK1.keys():
                 if target.lower() in part.lower():
-                    # Non contare se questo processo e' gia' in ITK1
                     if target.lower() not in itk1_procs:
                         match = re.search(r'([\d.]+)%', part)
                         if match:
                             non_itk1_pct += float(match.group(1))
                     break
     
-    # ITK1: conta i processi specificati in PROCESSI_NIOSH_ALTO_ITK1
     itk1_niosh_pct = 0.0
     if itk1_procs_str and not pd.isna(itk1_procs_str):
         parts = str(itk1_procs_str).split("|")
@@ -100,20 +90,14 @@ def calc_niosh_alto_pct(row):
     return non_itk1_pct + itk1_niosh_pct
 
 def format_processes_display(processes_str, itk1_processes_str):
-    """Riformatta i nomi dei processi per la visualizzazione.
-    Processi in ITK1 vengono rinominati con il nome SDC specifico."""
     if not processes_str or pd.isna(processes_str):
         return ""
-    
-    # Determina quali processi sono in ITK1
     itk1_procs = set()
     if itk1_processes_str and not pd.isna(itk1_processes_str):
         for part in str(itk1_processes_str).split("|"):
             match = re.match(r'(.+?)\s+[\d.]+%', part.strip())
             if match:
                 itk1_procs.add(match.group(1).strip().lower())
-    
-    # Riformatta
     parts = str(processes_str).split("|")
     new_parts = []
     for part in parts:
@@ -122,7 +106,6 @@ def format_processes_display(processes_str, itk1_processes_str):
         if match:
             proc_name = match.group(1).strip()
             pct = match.group(2)
-            # Se il processo e' in ITK1, usa il nome specifico dal dizionario o prefisso SDC
             if proc_name.lower() in itk1_procs:
                 if proc_name.lower() in PROCESSI_NIOSH_ALTO_ITK1:
                     proc_name = PROCESSI_NIOSH_ALTO_ITK1[proc_name.lower()]
@@ -131,11 +114,9 @@ def format_processes_display(processes_str, itk1_processes_str):
             new_parts.append(f"{proc_name} {pct}")
         else:
             new_parts.append(part)
-    
     return " | ".join(new_parts)
 
 def extract_processes_list(processes_str):
-    """Estrae lista di (nome_processo, percentuale) dalla stringa."""
     if not processes_str or pd.isna(processes_str):
         return []
     result = []
@@ -146,6 +127,19 @@ def extract_processes_list(processes_str):
         if match:
             result.append((match.group(1).strip(), float(match.group(2))))
     return result
+
+def get_main_process(processes_str):
+    if not processes_str or pd.isna(processes_str):
+        return ""
+    parts = str(processes_str).split("|")
+    if parts:
+        match = re.match(r'(.+?)\s+[\d.]+%', parts[0].strip())
+        if match:
+            return match.group(1).strip()
+    return ""
+
+def has_limitation(lim):
+    return lim is not None and not pd.isna(lim) and str(lim).strip() not in ("", "0", "nan")
 
 # === CARICA DATI ===
 df_all, dates_available = load_all_snapshots()
@@ -174,68 +168,72 @@ managers = sorted(df_all["manager_alias"].dropna().unique().tolist())
 selected_managers = st.sidebar.multiselect("Manager", managers, default=[])
 soglia_rotazione = st.sidebar.slider("Soglia rotazione critica (%)", 0, 100, 20, 5)
 
+# === TABS ===
+tab_main, tab_grafici, tab_settings = st.tabs(["📊 Dati", "📈 Grafici e Andamenti", "⚙️ Impostazioni"])
+
+# === TAB IMPOSTAZIONI ===
+with tab_settings:
+    st.title("⚙️ Parametri avanzati")
+    st.caption("Attiva e configura filtri aggiuntivi. Le modifiche si applicano immediatamente a tutte le tab.")
+    
+    st.divider()
+    
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        use_hour_filter = st.checkbox("Filtra per ore minime lavorate", value=False)
+        min_hours = st.number_input("Ore minime", min_value=0, max_value=40, value=16, step=2, disabled=not use_hour_filter)
+    
+    with col_s2:
+        use_weighted_avg = st.checkbox("Media pesata per ore lavorate", value=False,
+                                       help="Chi lavora più ore pesa di più nel calcolo della rotazione media")
+    
+    st.divider()
+    
+    use_limitation_filter = st.checkbox("Escludi AAs con limitazione medica e rotazione sotto soglia", value=False,
+                                        help="Esclude dal conteggio chi non ruota per motivi medici")
+    limitation_threshold = st.number_input("Soglia rotazione per esclusione (%)", min_value=0, max_value=50, value=10, step=5, disabled=not use_limitation_filter)
+
 # === FILTRAGGIO DATI ===
 df_filtered = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
 if selected_managers:
     df_filtered = df_filtered[df_filtered["manager_alias"].isin(selected_managers)]
 
-# === CALCOLI ===
-# Per gli alert: usa solo l'ultimo giorno disponibile nel periodo
+# Ultimo giorno per alert
 latest_date = df_filtered["snapshot_date"].max()
 df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
 
-# Filtro minimo ore: escludi chi ha lavorato meno di 16 ore
-df_person = df_latest[df_latest["TotalHours"] >= 16].copy()
+df_person = df_latest.copy()
 
-# Escludi dal conteggio: AA con rotazione < 10% E con limitazione medica
-# (non ruotano per motivi medici, non per cattiva gestione)
-def has_limitation(lim):
-    return lim is not None and not pd.isna(lim) and str(lim).strip() not in ("", "0", "nan")
+# Applica filtri avanzati se attivati
+if use_hour_filter:
+    df_person = df_person[df_person["TotalHours"] >= min_hours]
 
-df_person["HasLimitation"] = df_person["Limitazione"].apply(has_limitation)
-df_person = df_person[~((df_person["RotationPercent"] * 100 < 10) & (df_person["HasLimitation"]))].copy()
+if use_limitation_filter:
+    df_person["HasLimitation"] = df_person["Limitazione"].apply(has_limitation)
+    df_person = df_person[~((df_person["RotationPercent"] * 100 < limitation_threshold) & (df_person["HasLimitation"]))].copy()
 
 df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
-
-# Aggiungi colonna processo principale
-def get_main_process(processes_str):
-    if not processes_str or pd.isna(processes_str):
-        return ""
-    parts = str(processes_str).split("|")
-    if parts:
-        match = re.match(r'(.+?)\s+[\d.]+%', parts[0].strip())
-        if match:
-            return match.group(1).strip()
-    return ""
-
 df_person["MainProcess"] = df_person["Processes_7d_weighted"].apply(get_main_process)
 
-# Conta AAs per processo principale e identifica processi "operations" (>= 30 AAs)
 process_counts = df_person["MainProcess"].value_counts()
 processi_operations = set(process_counts[process_counts >= 30].index)
-
-# Flag: e' un AA di operations?
 df_person["IsOperations"] = df_person["MainProcess"].isin(processi_operations)
 
-# Aggiungi colonna processi formattata (con PICK SDC e SDC DOCK)
 df_person["Processi_Display"] = df_person.apply(
     lambda row: format_processes_display(row["Processes_7d_weighted"], row["ITK1_Processes_7d"]), axis=1
 )
 
-# === TABS ===
-tab_main, tab_grafici = st.tabs(["📊 Dati", "📈 Grafici e Andamenti"])
-
+# === TAB DATI ===
 with tab_main:
     st.title("Rotazione Media - MXP5")
     st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
     
-    # --- KPI ---
+    # KPI
     n_totale = len(df_person)
-    # Media pesata per ore lavorate
-    if df_person["TotalHours"].sum() > 0:
+    if use_weighted_avg and df_person["TotalHours"].sum() > 0:
         rotation_media = (df_person["RotationPercent"] * df_person["TotalHours"]).sum() / df_person["TotalHours"].sum() * 100
     else:
-        rotation_media = 0
+        rotation_media = df_person["RotationPercent"].mean() * 100 if n_totale > 0 else 0
     n_sotto_soglia = (df_person["RotationPercent"] * 100 < soglia_rotazione).sum()
     pct_sotto_soglia = (n_sotto_soglia / n_totale * 100) if n_totale > 0 else 0
     n_niosh_alto = (df_person["PctNioshAlto"] > 50).sum()
@@ -252,7 +250,7 @@ with tab_main:
     
     st.divider()
     
-    # --- SEZIONE 1: AAs con >50% tempo su NIOSH >2 ---
+    # SEZIONE 1: NIOSH alert
     st.subheader("🔴 AAs con esposizione >50% a processi NIOSH >2")
     df_niosh_alert = df_person[df_person["PctNioshAlto"] > 50].sort_values("PctNioshAlto", ascending=False)
     if len(df_niosh_alert) > 0:
@@ -260,10 +258,8 @@ with tab_main:
         df_show["RotationPercent"] = (df_show["RotationPercent"] * 100).round(1)
         df_show["PctNioshAlto"] = df_show["PctNioshAlto"].round(1)
         df_show = df_show.rename(columns={
-            "login": "Login",
-            "manager_alias": "Manager",
-            "PctNioshAlto": "% Tempo NIOSH >2",
-            "RotationPercent": "Rotazione %",
+            "login": "Login", "manager_alias": "Manager",
+            "PctNioshAlto": "% Tempo NIOSH >2", "RotationPercent": "Rotazione %",
             "Processi_Display": "Processi (ultimi 7gg)",
         })
         st.dataframe(df_show, use_container_width=True, hide_index=True)
@@ -272,7 +268,7 @@ with tab_main:
     
     st.divider()
     
-    # --- SEZIONE 2: Rotazione % media ---
+    # SEZIONE 2: Dettaglio rotazione
     st.subheader("📋 Dettaglio rotazione per ogni AA")
     df_rotation = df_person[["login", "manager_alias", "RotationPercent", "DifferentProcesses", "PctNioshAlto"]].copy()
     df_rotation["RotationPercent"] = (df_rotation["RotationPercent"] * 100).round(1)
@@ -287,7 +283,7 @@ with tab_main:
 
     st.divider()
     
-    # --- SEZIONE 3: AAs sotto soglia ---
+    # SEZIONE 3: AAs sotto soglia
     st.subheader(f"⚠️ AAs con rotazione < {soglia_rotazione}%")
     df_sotto = df_person[(df_person["RotationPercent"] * 100 < soglia_rotazione) & (df_person["IsOperations"])].sort_values("RotationPercent")
     if len(df_sotto) > 0:
@@ -307,7 +303,7 @@ with tab_main:
     
     st.divider()
     
-    # --- SEZIONE 4: Rotation alert per manager ---
+    # SEZIONE 4: Alert per manager
     st.subheader("🏢 Situazione per Manager: quanti AAs non ruotano abbastanza")
     df_alert_mgr = df_person[df_person["RotationPercent"] * 100 < soglia_rotazione].groupby("manager_alias").agg(
         N_AAs_sotto_soglia=("login", "count"),
@@ -328,7 +324,7 @@ with tab_main:
     
     st.divider()
     
-    # --- SEZIONE 5: Processi top offender ---
+    # SEZIONE 5: Processi stagnazione
     st.subheader("🎯 Processi con più stagnazione")
     process_stats = []
     for _, row in df_person.iterrows():
@@ -353,34 +349,29 @@ with tab_main:
         })
         st.dataframe(df_proc_agg, use_container_width=True, hide_index=True)
 
-# =====================
-# TAB GRAFICI
-# =====================
+# === TAB GRAFICI ===
 with tab_grafici:
     st.title("📈 Andamento nel tempo")
     
+    # Prepara dati trend con stessi filtri
+    df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
+    if selected_managers:
+        df_trend_base = df_trend_base[df_trend_base["manager_alias"].isin(selected_managers)]
+    if use_hour_filter:
+        df_trend_base = df_trend_base[df_trend_base["TotalHours"] >= min_hours]
+    if use_limitation_filter:
+        df_trend_base["_has_lim"] = df_trend_base["Limitazione"].apply(has_limitation)
+        df_trend_base = df_trend_base[~((df_trend_base["RotationPercent"] * 100 < limitation_threshold) & (df_trend_base["_has_lim"]))]
+    
     st.subheader("Rotazione media giornaliera (%)")
     if len(dates_available) > 1:
-        df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
-        if selected_managers:
-            df_trend_base = df_trend_base[df_trend_base["manager_alias"].isin(selected_managers)]
-        # Filtra minimo ore
-        df_trend_base = df_trend_base[df_trend_base["TotalHours"] >= 16]
-        # Escludi AA con rotazione < 10% e limitazione medica
-        df_trend_base["_has_lim"] = df_trend_base["Limitazione"].apply(
-            lambda x: x is not None and not pd.isna(x) and str(x).strip() not in ("", "0", "nan")
-        )
-        df_trend_base = df_trend_base[~((df_trend_base["RotationPercent"] * 100 < 10) & (df_trend_base["_has_lim"]))]
-        
-        # Media pesata per ore
         trend_data = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
             df_day = df_trend_base[df_trend_base["snapshot_date"] == date]
-            total_hours = df_day["TotalHours"].sum()
-            if total_hours > 0:
-                weighted_rot = (df_day["RotationPercent"] * df_day["TotalHours"]).sum() / total_hours * 100
+            if use_weighted_avg and df_day["TotalHours"].sum() > 0:
+                weighted_rot = (df_day["RotationPercent"] * df_day["TotalHours"]).sum() / df_day["TotalHours"].sum() * 100
             else:
-                weighted_rot = 0
+                weighted_rot = df_day["RotationPercent"].mean() * 100 if len(df_day) > 0 else 0
             trend_data.append({"Data": date, "Rotazione media (%)": weighted_rot})
         df_trend = pd.DataFrame(trend_data)
         st.line_chart(df_trend.set_index("Data")["Rotazione media (%)"])
