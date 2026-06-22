@@ -366,6 +366,11 @@ with tab_grafici:
             df_trend_base = df_trend_base[df_trend_base["manager_alias"].isin(selected_managers)]
         # Filtra minimo ore
         df_trend_base = df_trend_base[df_trend_base["TotalHours"] >= 16]
+        # Escludi AA con rotazione < 10% e limitazione medica
+        df_trend_base["_has_lim"] = df_trend_base["Limitazione"].apply(
+            lambda x: x is not None and not pd.isna(x) and str(x).strip() not in ("", "0", "nan")
+        )
+        df_trend_base = df_trend_base[~((df_trend_base["RotationPercent"] * 100 < 10) & (df_trend_base["_has_lim"]))]
         
         # Media pesata per ore
         trend_data = []
