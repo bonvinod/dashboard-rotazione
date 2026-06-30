@@ -430,56 +430,63 @@ with tab_grafici:
 with tab_search:
     st.title("🔍 Cerca Associate")
     
-    search_login = st.text_input("Inserisci login AA", placeholder="es. rosariv")
+    # Selectbox con autofill (lista di tutti i login nel periodo)
+    all_logins = sorted(df_filtered["login"].dropna().unique().tolist())
+    search_login = st.selectbox("Seleziona login AA", [""] + all_logins, index=0)
     
     if search_login:
-        search_login = search_login.strip().lower()
-        
-        # Cerca nel periodo selezionato
-        df_search = df_filtered[df_filtered["login"].str.lower() == search_login]
+        # Dati nel periodo selezionato per questo AA
+        df_search = df_filtered[df_filtered["login"] == search_login]
         
         if len(df_search) == 0:
             st.warning(f"Login '{search_login}' non trovato nel periodo selezionato.")
         else:
-            # Ultimo dato disponibile
-            latest = df_search[df_search["snapshot_date"] == df_search["snapshot_date"].max()].iloc[0]
+            # Media sul periodo
+            avg_rotation = df_search["RotationPercent"].mean() * 100
+            avg_hours = df_search["TotalHours"].mean()
+            avg_procs = df_search["DifferentProcesses"].mean()
+            manager = df_search["manager_alias"].iloc[-1]
+            lim = df_search["Limitazione"].iloc[-1]
+            n_snapshots = len(df_search)
             
-            st.subheader(f"📋 {latest['login']}")
+            st.subheader(f"📋 {search_login}")
+            st.caption(f"Media su {n_snapshots} giorni nel periodo selezionato")
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Manager", latest["manager_alias"])
+                st.metric("Manager", manager)
             with col2:
-                st.metric("Rotazione", f"{latest['RotationPercent']*100:.1f}%")
+                st.metric("Rotazione media", f"{avg_rotation:.1f}%")
             with col3:
-                st.metric("Ore lavorate (7gg)", f"{latest['TotalHours']:.1f}")
+                st.metric("Ore medie (7gg)", f"{avg_hours:.1f}")
             
             col4, col5 = st.columns(2)
             with col4:
-                st.metric("N° Processi diversi", int(latest["DifferentProcesses"]))
+                st.metric("N° Processi diversi (media)", f"{avg_procs:.1f}")
             with col5:
-                lim = latest["Limitazione"]
                 has_lim = "Sì" if lim and not pd.isna(lim) and str(lim).strip() not in ("", "0", "nan") else "No"
                 st.metric("Limitazione medica", has_lim)
             
             if has_lim == "Sì":
-                st.info(f"**Limitazione:** {latest['Limitazione']}")
+                st.info(f"**Limitazione:** {lim}")
             
             st.divider()
             
-            # Dettaglio processi
-            st.subheader("Distribuzione processi (ultimi 7gg)")
-            procs = extract_processes_list(latest["Processes_7d_weighted"])
-            if procs:
-                # Rinomina con SDC se in ITK1
+            # Distribuzione processi media nel periodo
+            st.subheader("Distribuzione processi — media nel periodo")
+            
+            # Accumula processi da tutti gli snapshot
+            from collections import defaultdict
+            proc_totals = defaultdict(list)
+            for _, row in df_search.iterrows():
+                procs = extract_processes_list(row["Processes_7d_weighted"])
                 itk1_procs_set = set()
-                if latest["ITK1_Processes_7d"] and not pd.isna(latest["ITK1_Processes_7d"]):
-                    for part in str(latest["ITK1_Processes_7d"]).split("|"):
-                        match = re.match(r'(.+?)\s+[\d.]+%', part.strip())
-                        if match:
-                            itk1_procs_set.add(match.group(1).strip().lower())
+                if row["ITK1_Processes_7d"] and not pd.isna(row["ITK1_Processes_7d"]):
+                    for part in str(row["ITK1_Processes_7d"]).split("|"):
+                        m = re.match(r'(.+?)\s+[\d.]+%', part.strip())
+                        if m:
+                            itk1_procs_set.add(m.group(1).strip().lower())
                 
-                proc_data = []
                 for proc_name, pct in procs:
                     display_name = proc_name
                     if proc_name.lower() in itk1_procs_set:
@@ -487,8 +494,14 @@ with tab_search:
                             display_name = PROCESSI_NIOSH_ALTO_ITK1[proc_name.lower()]
                         else:
                             display_name = f"SDC {proc_name}"
-                    proc_data.append({"Processo": display_name, "% Tempo": pct})
-                
+                    proc_totals[display_name].append(pct)
+            
+            # Calcola media per processo
+            proc_data = [{"Processo": name, "% Tempo (media)": round(sum(vals)/len(vals), 1)} 
+                         for name, vals in proc_totals.items()]
+            proc_data.sort(key=lambda x: x["% Tempo (media)"], reverse=True)
+            
+            if proc_data:
                 df_procs = pd.DataFrame(proc_data)
                 st.dataframe(df_procs, use_container_width=True, hide_index=True)
                 st.bar_chart(df_procs.set_index("Processo"))
