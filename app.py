@@ -169,7 +169,7 @@ selected_managers = st.sidebar.multiselect("Manager", managers, default=[])
 soglia_rotazione = st.sidebar.slider("Soglia rotazione critica (%)", 0, 100, 20, 5)
 
 # === TABS ===
-tab_main, tab_grafici, tab_settings = st.tabs(["📊 Dati", "📈 Grafici e Andamenti", "⚙️ Impostazioni"])
+tab_main, tab_grafici, tab_search, tab_settings = st.tabs(["📊 Dati", "📈 Grafici e Andamenti", "🔍 Cerca AA", "⚙️ Impostazioni"])
 
 # === TAB IMPOSTAZIONI ===
 with tab_settings:
@@ -425,3 +425,79 @@ with tab_grafici:
         "Numero AAs": hist_counts,
     })
     st.bar_chart(df_hist.set_index("Fascia rotazione (%)"))
+
+# === TAB CERCA AA ===
+with tab_search:
+    st.title("🔍 Cerca Associate")
+    
+    search_login = st.text_input("Inserisci login AA", placeholder="es. rosariv")
+    
+    if search_login:
+        search_login = search_login.strip().lower()
+        
+        # Cerca nel periodo selezionato
+        df_search = df_filtered[df_filtered["login"].str.lower() == search_login]
+        
+        if len(df_search) == 0:
+            st.warning(f"Login '{search_login}' non trovato nel periodo selezionato.")
+        else:
+            # Ultimo dato disponibile
+            latest = df_search[df_search["snapshot_date"] == df_search["snapshot_date"].max()].iloc[0]
+            
+            st.subheader(f"📋 {latest['login']}")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Manager", latest["manager_alias"])
+            with col2:
+                st.metric("Rotazione", f"{latest['RotationPercent']*100:.1f}%")
+            with col3:
+                st.metric("Ore lavorate (7gg)", f"{latest['TotalHours']:.1f}")
+            
+            col4, col5 = st.columns(2)
+            with col4:
+                st.metric("N° Processi diversi", int(latest["DifferentProcesses"]))
+            with col5:
+                lim = latest["Limitazione"]
+                has_lim = "Sì" if lim and not pd.isna(lim) and str(lim).strip() not in ("", "0", "nan") else "No"
+                st.metric("Limitazione medica", has_lim)
+            
+            if has_lim == "Sì":
+                st.info(f"**Limitazione:** {latest['Limitazione']}")
+            
+            st.divider()
+            
+            # Dettaglio processi
+            st.subheader("Distribuzione processi (ultimi 7gg)")
+            procs = extract_processes_list(latest["Processes_7d_weighted"])
+            if procs:
+                # Rinomina con SDC se in ITK1
+                itk1_procs_set = set()
+                if latest["ITK1_Processes_7d"] and not pd.isna(latest["ITK1_Processes_7d"]):
+                    for part in str(latest["ITK1_Processes_7d"]).split("|"):
+                        match = re.match(r'(.+?)\s+[\d.]+%', part.strip())
+                        if match:
+                            itk1_procs_set.add(match.group(1).strip().lower())
+                
+                proc_data = []
+                for proc_name, pct in procs:
+                    display_name = proc_name
+                    if proc_name.lower() in itk1_procs_set:
+                        if proc_name.lower() in PROCESSI_NIOSH_ALTO_ITK1:
+                            display_name = PROCESSI_NIOSH_ALTO_ITK1[proc_name.lower()]
+                        else:
+                            display_name = f"SDC {proc_name}"
+                    proc_data.append({"Processo": display_name, "% Tempo": pct})
+                
+                df_procs = pd.DataFrame(proc_data)
+                st.dataframe(df_procs, use_container_width=True, hide_index=True)
+                st.bar_chart(df_procs.set_index("Processo"))
+            
+            # Trend rotazione nel periodo
+            if len(df_search) > 1:
+                st.divider()
+                st.subheader("Andamento rotazione nel periodo")
+                df_trend_aa = df_search[["snapshot_date", "RotationPercent"]].copy()
+                df_trend_aa["RotationPercent"] = df_trend_aa["RotationPercent"] * 100
+                df_trend_aa = df_trend_aa.rename(columns={"snapshot_date": "Data", "RotationPercent": "Rotazione (%)"})
+                st.line_chart(df_trend_aa.set_index("Data")["Rotazione (%)"])
