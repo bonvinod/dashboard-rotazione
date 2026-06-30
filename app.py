@@ -452,13 +452,11 @@ with tab_search:
             st.subheader(f"📋 {search_login}")
             st.caption(f"Media su {n_snapshots} giorni nel periodo selezionato")
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 st.metric("Manager", manager)
             with col2:
                 st.metric("Rotazione media", f"{avg_rotation:.1f}%")
-            with col3:
-                st.metric("Ore medie (7gg)", f"{avg_hours:.1f}")
             
             col4, col5 = st.columns(2)
             with col4:
