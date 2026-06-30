@@ -287,16 +287,18 @@ with tab_main:
     st.subheader(f"⚠️ AAs con rotazione < {soglia_rotazione}%")
     df_sotto = df_person[(df_person["RotationPercent"] * 100 < soglia_rotazione) & (df_person["IsOperations"])].sort_values("RotationPercent")
     if len(df_sotto) > 0:
-        df_sotto_show = df_sotto[["login", "manager_alias", "RotationPercent", "RotationSeverity", "Limitazione"]].copy()
+        df_sotto_show = df_sotto[["login", "manager_alias", "RotationPercent", "MainProcessShare", "MainProcess", "Limitazione"]].copy()
         df_sotto_show["RotationPercent"] = (df_sotto_show["RotationPercent"] * 100).round(1)
+        df_sotto_show["MainProcessShare"] = (df_sotto_show["MainProcessShare"] * 100).round(1)
         df_sotto_show["Ha Limitazione"] = df_sotto_show["Limitazione"].apply(
             lambda x: "Sì" if x and str(x) not in ("", "nan", "0") else "No"
         )
         df_sotto_show = df_sotto_show.rename(columns={
             "login": "Login", "manager_alias": "Manager",
-            "RotationPercent": "Rotazione %", "RotationSeverity": "Severità",
+            "RotationPercent": "Rotazione %", "MainProcess": "Processo Principale",
+            "MainProcessShare": "% Tempo su Principale",
         })
-        st.dataframe(df_sotto_show[["Login", "Manager", "Rotazione %", "Severità", "Ha Limitazione"]], 
+        st.dataframe(df_sotto_show[["Login", "Manager", "Rotazione %", "Processo Principale", "% Tempo su Principale", "Ha Limitazione"]], 
                      use_container_width=True, hide_index=True)
     else:
         st.success(f"Nessun AA sotto la soglia del {soglia_rotazione}%")
