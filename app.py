@@ -164,6 +164,18 @@ if isinstance(date_range, tuple) and len(date_range) == 2:
 else:
     start_date = end_date = date_range
 
+# Selettore per settimana
+available_weeks = sorted(set(f"Wk{d.isocalendar()[1]}" for d in dates_available))
+selected_week = st.sidebar.selectbox("Oppure seleziona settimana", ["Tutte"] + available_weeks)
+
+if selected_week != "Tutte":
+    wk_num = int(selected_week.replace("Wk", ""))
+    # Filtra date che appartengono a quella settimana
+    week_dates = [d for d in dates_available if d.isocalendar()[1] == wk_num]
+    if week_dates:
+        start_date = min(week_dates)
+        end_date = max(week_dates)
+
 managers = sorted(df_all["manager_alias"].dropna().unique().tolist())
 selected_managers = st.sidebar.multiselect("Manager", managers, default=[])
 soglia_rotazione = st.sidebar.slider("Soglia rotazione critica (%)", 0, 100, 20, 5)
@@ -198,9 +210,25 @@ df_filtered = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot
 if selected_managers:
     df_filtered = df_filtered[df_filtered["manager_alias"].isin(selected_managers)]
 
-# Ultimo giorno per alert
+# Se settimana selezionata: media dei giorni nella wk. Altrimenti: ultimo giorno.
 latest_date = df_filtered["snapshot_date"].max()
-df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
+if selected_week != "Tutte":
+    # Media settimanale per persona
+    df_person = df_filtered.groupby("login").agg({
+        "RotationPercent": "mean",
+        "TotalHours": "mean",
+        "DifferentProcesses": "mean",
+        "MainProcessShare": "mean",
+        "Processes_7d_weighted": "last",
+        "ITK1_Processes_7d": "last",
+        "manager_alias": "last",
+        "Limitazione": "last",
+        "RotationSeverity": "last",
+        "ITK1_HoursPercent": "mean",
+    }).reset_index()
+else:
+    df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
+    df_person = df_latest.copy()
 
 df_person = df_latest.copy()
 
@@ -228,7 +256,10 @@ df_person["Processi_Display"] = df_person.apply(
 # === TAB DATI ===
 with tab_main:
     st.title("Rotazione Media - MXP5")
-    st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
+    if selected_week != "Tutte":
+        st.caption(f"Media settimanale: **{selected_week}** ({start_date.strftime('%d/%m')} - {end_date.strftime('%d/%m/%Y')})")
+    else:
+        st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
     
     # KPI
     n_totale = len(df_person)
