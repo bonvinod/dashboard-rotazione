@@ -204,21 +204,12 @@ latest_date = df_filtered["snapshot_date"].max()
 df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
 
 if vista_tempo == "Settimana":
-    # Media settimanale per persona (media di tutti i giorni nel periodo)
-    df_person = df_filtered.groupby("login").agg({
-        "RotationPercent": "mean",
-        "TotalHours": "mean",
-        "DifferentProcesses": "mean",
-        "MainProcessShare": "mean",
-        "Processes_7d_weighted": "last",
-        "ITK1_Processes_7d": "last",
-        "manager_alias": "last",
-        "Limitazione": "last",
-        "RotationSeverity": "last",
-        "ITK1_HoursPercent": "mean",
-    }).reset_index()
+    # Calcola settimane disponibili nel periodo
+    df_filtered["_wk"] = df_filtered["snapshot_date"].apply(lambda d: f"Wk{d.isocalendar()[1]}")
+    available_weeks_in_period = sorted(df_filtered["_wk"].unique().tolist(), 
+                                        key=lambda x: int(x.replace("Wk", "")))
 else:
-    df_person = df_latest.copy()
+    available_weeks_in_period = []
 
 # Applica filtri avanzati se attivati
 if use_hour_filter:
@@ -244,9 +235,27 @@ df_person["Processi_Display"] = df_person.apply(
 # === TAB DATI ===
 with tab_main:
     st.title("Rotazione Media - MXP5")
-    if vista_tempo == "Settimana":
-        st.caption(f"Media settimanale nel periodo: **{start_date.strftime('%d/%m')} - {end_date.strftime('%d/%m/%Y')}**")
+    
+    if vista_tempo == "Settimana" and available_weeks_in_period:
+        selected_wk = st.selectbox("Seleziona settimana", available_weeks_in_period, 
+                                    index=len(available_weeks_in_period)-1)
+        # Filtra solo i giorni di quella settimana
+        df_wk = df_filtered[df_filtered["_wk"] == selected_wk]
+        df_person = df_wk.groupby("login").agg({
+            "RotationPercent": "mean",
+            "TotalHours": "mean",
+            "DifferentProcesses": "mean",
+            "MainProcessShare": "mean",
+            "Processes_7d_weighted": "last",
+            "ITK1_Processes_7d": "last",
+            "manager_alias": "last",
+            "Limitazione": "last",
+            "RotationSeverity": "last",
+            "ITK1_HoursPercent": "mean",
+        }).reset_index()
+        st.caption(f"Media settimanale: **{selected_wk}**")
     else:
+        df_person = df_latest.copy()
         st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
     
     # KPI
