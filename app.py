@@ -164,18 +164,6 @@ if isinstance(date_range, tuple) and len(date_range) == 2:
 else:
     start_date = end_date = date_range
 
-# Selettore per settimana
-available_weeks = sorted(set(f"Wk{d.isocalendar()[1]}" for d in dates_available))
-selected_week = st.sidebar.selectbox("Oppure seleziona settimana", ["Tutte"] + available_weeks)
-
-if selected_week != "Tutte":
-    wk_num = int(selected_week.replace("Wk", ""))
-    # Filtra date che appartengono a quella settimana
-    week_dates = [d for d in dates_available if d.isocalendar()[1] == wk_num]
-    if week_dates:
-        start_date = min(week_dates)
-        end_date = max(week_dates)
-
 managers = sorted(df_all["manager_alias"].dropna().unique().tolist())
 selected_managers = st.sidebar.multiselect("Manager", managers, default=[])
 soglia_rotazione = st.sidebar.slider("Soglia rotazione critica (%)", 0, 100, 20, 5)
@@ -210,26 +198,10 @@ df_filtered = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot
 if selected_managers:
     df_filtered = df_filtered[df_filtered["manager_alias"].isin(selected_managers)]
 
-# Se settimana selezionata: media dei giorni nella wk. Altrimenti: ultimo giorno.
+# Ultimo giorno per alert
 latest_date = df_filtered["snapshot_date"].max()
 df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
-
-if selected_week != "Tutte":
-    # Media settimanale per persona
-    df_person = df_filtered.groupby("login").agg({
-        "RotationPercent": "mean",
-        "TotalHours": "mean",
-        "DifferentProcesses": "mean",
-        "MainProcessShare": "mean",
-        "Processes_7d_weighted": "last",
-        "ITK1_Processes_7d": "last",
-        "manager_alias": "last",
-        "Limitazione": "last",
-        "RotationSeverity": "last",
-        "ITK1_HoursPercent": "mean",
-    }).reset_index()
-else:
-    df_person = df_latest.copy()
+df_person = df_latest.copy()
 
 df_person = df_latest.copy()
 
@@ -257,10 +229,7 @@ df_person["Processi_Display"] = df_person.apply(
 # === TAB DATI ===
 with tab_main:
     st.title("Rotazione Media - MXP5")
-    if selected_week != "Tutte":
-        st.caption(f"Media settimanale: **{selected_week}** ({start_date.strftime('%d/%m')} - {end_date.strftime('%d/%m/%Y')})")
-    else:
-        st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
+    st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
     
     # KPI
     n_totale = len(df_person)
@@ -391,6 +360,9 @@ with tab_main:
 with tab_grafici:
     st.title("📈 Andamento nel tempo")
     
+    # Toggle vista giornaliera/settimanale
+    vista_tempo = st.radio("Raggruppa per:", ["Giorno", "Settimana"], horizontal=True)
+    
     # Prepara dati trend con stessi filtri
     df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
     if selected_managers:
@@ -401,7 +373,18 @@ with tab_grafici:
         df_trend_base["_has_lim"] = df_trend_base["Limitazione"].apply(has_limitation)
         df_trend_base = df_trend_base[~((df_trend_base["RotationPercent"] * 100 < limitation_threshold) & (df_trend_base["_has_lim"]))]
     
-    st.subheader("Rotazione media giornaliera (%)")
+    # Helper: raggruppa per settimana se richiesto
+    def group_by_week(df_daily, value_col):
+        """Raggruppa un DataFrame giornaliero per settimana ISO, facendo la media."""
+        df_daily = df_daily.reset_index()
+        df_daily["Wk"] = df_daily["Data"].apply(lambda d: f"Wk{d.isocalendar()[1]}")
+        df_weekly = df_daily.groupby("Wk")[value_col].mean().reset_index()
+        # Ordina per numero settimana
+        df_weekly["_wk_num"] = df_weekly["Wk"].str.replace("Wk", "").astype(int)
+        df_weekly = df_weekly.sort_values("_wk_num").drop(columns="_wk_num").set_index("Wk")
+        return df_weekly
+
+    st.subheader("Rotazione media (%)")
     if len(dates_available) > 1:
         trend_data = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
@@ -413,13 +396,15 @@ with tab_grafici:
             trend_data.append({"Data": date, "Rotazione media (%)": weighted_rot})
         df_trend = pd.DataFrame(trend_data).set_index("Data")
         df_trend["Trend"] = df_trend["Rotazione media (%)"].expanding().mean()
+        if vista_tempo == "Settimana":
+            df_trend = group_by_week(df_trend, "Rotazione media (%)")
         st.line_chart(df_trend)
     else:
         st.info("Servono almeno 2 giorni di dati per mostrare il trend.")
     
     st.divider()
     
-    st.subheader(f"% di AAs con rotazione inferiore al {soglia_rotazione}% — andamento giornaliero")
+    st.subheader(f"% di AAs con rotazione inferiore al {soglia_rotazione}%")
     if len(dates_available) > 1:
         trend_soglia = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
@@ -430,13 +415,15 @@ with tab_grafici:
             trend_soglia.append({"Data": date, "% sul totale AAs": pct})
         df_trend_soglia = pd.DataFrame(trend_soglia).set_index("Data")
         df_trend_soglia["Trend"] = df_trend_soglia["% sul totale AAs"].expanding().mean()
+        if vista_tempo == "Settimana":
+            df_trend_soglia = group_by_week(df_trend_soglia, "% sul totale AAs")
         st.line_chart(df_trend_soglia)
     else:
         st.info("Servono almeno 2 giorni di dati.")
     
     st.divider()
     
-    st.subheader("% media del turno spesa su processi NIOSH >2 — andamento giornaliero")
+    st.subheader("% media del turno spesa su processi NIOSH >2")
     if len(dates_available) > 1:
         trend_niosh = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
@@ -445,6 +432,8 @@ with tab_grafici:
             trend_niosh.append({"Data": date, "% del turno su NIOSH >2": pct_niosh})
         df_trend_niosh = pd.DataFrame(trend_niosh).set_index("Data")
         df_trend_niosh["Trend"] = df_trend_niosh["% del turno su NIOSH >2"].expanding().mean()
+        if vista_tempo == "Settimana":
+            df_trend_niosh = group_by_week(df_trend_niosh, "% del turno su NIOSH >2")
         st.line_chart(df_trend_niosh)
     else:
         st.info("Servono almeno 2 giorni di dati.")
