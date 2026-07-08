@@ -212,6 +212,8 @@ if selected_managers:
 
 # Se settimana selezionata: media dei giorni nella wk. Altrimenti: ultimo giorno.
 latest_date = df_filtered["snapshot_date"].max()
+df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
+
 if selected_week != "Tutte":
     # Media settimanale per persona
     df_person = df_filtered.groupby("login").agg({
@@ -227,7 +229,6 @@ if selected_week != "Tutte":
         "ITK1_HoursPercent": "mean",
     }).reset_index()
 else:
-    df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
     df_person = df_latest.copy()
 
 df_person = df_latest.copy()
