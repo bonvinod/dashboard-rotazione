@@ -379,8 +379,9 @@ with tab_grafici:
             else:
                 weighted_rot = df_day["RotationPercent"].mean() * 100 if len(df_day) > 0 else 0
             trend_data.append({"Data": date, "Rotazione media (%)": weighted_rot})
-        df_trend = pd.DataFrame(trend_data)
-        st.line_chart(df_trend.set_index("Data")["Rotazione media (%)"])
+        df_trend = pd.DataFrame(trend_data).set_index("Data")
+        df_trend["Trend"] = df_trend["Rotazione media (%)"].expanding().mean()
+        st.line_chart(df_trend)
     else:
         st.info("Servono almeno 2 giorni di dati per mostrare il trend.")
     
@@ -395,8 +396,9 @@ with tab_grafici:
             n_sotto = (df_day["RotationPercent"] * 100 < soglia_rotazione).sum()
             pct = (n_sotto / n_tot * 100) if n_tot > 0 else 0
             trend_soglia.append({"Data": date, "% sul totale AAs": pct})
-        df_trend_soglia = pd.DataFrame(trend_soglia)
-        st.line_chart(df_trend_soglia.set_index("Data"))
+        df_trend_soglia = pd.DataFrame(trend_soglia).set_index("Data")
+        df_trend_soglia["Trend"] = df_trend_soglia["% sul totale AAs"].expanding().mean()
+        st.line_chart(df_trend_soglia)
     else:
         st.info("Servono almeno 2 giorni di dati.")
     
@@ -409,8 +411,9 @@ with tab_grafici:
             df_day = df_trend_base[df_trend_base["snapshot_date"] == date]
             pct_niosh = df_day.apply(calc_niosh_alto_pct, axis=1).mean()
             trend_niosh.append({"Data": date, "% del turno su NIOSH >2": pct_niosh})
-        df_trend_niosh = pd.DataFrame(trend_niosh)
-        st.line_chart(df_trend_niosh.set_index("Data"))
+        df_trend_niosh = pd.DataFrame(trend_niosh).set_index("Data")
+        df_trend_niosh["Trend"] = df_trend_niosh["% del turno su NIOSH >2"].expanding().mean()
+        st.line_chart(df_trend_niosh)
     else:
         st.info("Servono almeno 2 giorni di dati.")
     
