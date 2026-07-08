@@ -204,33 +204,15 @@ latest_date = df_filtered["snapshot_date"].max()
 df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
 
 if vista_tempo == "Settimana":
-    # Calcola settimane disponibili nel periodo
     df_filtered["_wk"] = df_filtered["snapshot_date"].apply(lambda d: f"Wk{d.isocalendar()[1]}")
     available_weeks_in_period = sorted(df_filtered["_wk"].unique().tolist(), 
                                         key=lambda x: int(x.replace("Wk", "")))
 else:
     available_weeks_in_period = []
 
-# Applica filtri avanzati se attivati
-if use_hour_filter:
-    df_person = df_person[df_person["TotalHours"] >= min_hours]
-
-if use_limitation_filter:
-    df_person["HasLimitation"] = df_person["Limitazione"].apply(has_limitation)
-    df_person = df_person[~((df_person["RotationPercent"] * 100 < limitation_threshold) & (df_person["HasLimitation"]))].copy()
-
-df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
-df_person["MainProcess"] = df_person["Processes_7d_weighted"].apply(get_main_process)
-
-process_counts = df_person["MainProcess"].value_counts()
-# Soglia dinamica: 30 senza filtro manager, 3 con filtro
-ops_threshold = 3 if selected_managers else 30
-processi_operations = set(process_counts[process_counts >= ops_threshold].index)
-df_person["IsOperations"] = df_person["MainProcess"].isin(processi_operations)
-
-df_person["Processi_Display"] = df_person.apply(
-    lambda row: format_processes_display(row["Processes_7d_weighted"], row["ITK1_Processes_7d"]), axis=1
-)
+# df_person viene definito qui come default (ultimo giorno)
+# Se vista_tempo == "Settimana", verrà sovrascritto nella tab Dati dopo la selezione della Wk
+df_person = df_latest.copy()
 
 # === TAB DATI ===
 with tab_main:
@@ -255,8 +237,24 @@ with tab_main:
         }).reset_index()
         st.caption(f"Media settimanale: **{selected_wk}**")
     else:
-        df_person = df_latest.copy()
         st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
+    
+    # Applica filtri avanzati
+    if use_hour_filter:
+        df_person = df_person[df_person["TotalHours"] >= min_hours].copy()
+    if use_limitation_filter:
+        df_person["HasLimitation"] = df_person["Limitazione"].apply(has_limitation)
+        df_person = df_person[~((df_person["RotationPercent"] * 100 < limitation_threshold) & (df_person["HasLimitation"]))].copy()
+    
+    df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
+    df_person["MainProcess"] = df_person["Processes_7d_weighted"].apply(get_main_process)
+    process_counts = df_person["MainProcess"].value_counts()
+    ops_threshold = 3 if selected_managers else 30
+    processi_operations = set(process_counts[process_counts >= ops_threshold].index)
+    df_person["IsOperations"] = df_person["MainProcess"].isin(processi_operations)
+    df_person["Processi_Display"] = df_person.apply(
+        lambda row: format_processes_display(row["Processes_7d_weighted"], row["ITK1_Processes_7d"]), axis=1
+    )
     
     # KPI
     n_totale = len(df_person)
