@@ -167,6 +167,7 @@ else:
 managers = sorted(df_all["manager_alias"].dropna().unique().tolist())
 selected_managers = st.sidebar.multiselect("Manager", managers, default=[])
 soglia_rotazione = st.sidebar.slider("Soglia rotazione critica (%)", 0, 100, 20, 5)
+vista_tempo = st.sidebar.radio("Raggruppa per:", ["Giorno", "Settimana"], horizontal=True)
 
 # === TABS ===
 tab_main, tab_grafici, tab_search, tab_settings = st.tabs(["📊 Dati", "📈 Grafici e Andamenti", "🔍 Cerca AA", "⚙️ Impostazioni"])
@@ -201,9 +202,23 @@ if selected_managers:
 # Ultimo giorno per alert
 latest_date = df_filtered["snapshot_date"].max()
 df_latest = df_filtered[df_filtered["snapshot_date"] == latest_date]
-df_person = df_latest.copy()
 
-df_person = df_latest.copy()
+if vista_tempo == "Settimana":
+    # Media settimanale per persona (media di tutti i giorni nel periodo)
+    df_person = df_filtered.groupby("login").agg({
+        "RotationPercent": "mean",
+        "TotalHours": "mean",
+        "DifferentProcesses": "mean",
+        "MainProcessShare": "mean",
+        "Processes_7d_weighted": "last",
+        "ITK1_Processes_7d": "last",
+        "manager_alias": "last",
+        "Limitazione": "last",
+        "RotationSeverity": "last",
+        "ITK1_HoursPercent": "mean",
+    }).reset_index()
+else:
+    df_person = df_latest.copy()
 
 # Applica filtri avanzati se attivati
 if use_hour_filter:
@@ -229,7 +244,10 @@ df_person["Processi_Display"] = df_person.apply(
 # === TAB DATI ===
 with tab_main:
     st.title("Rotazione Media - MXP5")
-    st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
+    if vista_tempo == "Settimana":
+        st.caption(f"Media settimanale nel periodo: **{start_date.strftime('%d/%m')} - {end_date.strftime('%d/%m/%Y')}**")
+    else:
+        st.caption(f"Dati riferiti al: **{latest_date.strftime('%d/%m/%Y')}**")
     
     # KPI
     n_totale = len(df_person)
@@ -359,9 +377,6 @@ with tab_main:
 # === TAB GRAFICI ===
 with tab_grafici:
     st.title("📈 Andamento nel tempo")
-    
-    # Toggle vista giornaliera/settimanale
-    vista_tempo = st.radio("Raggruppa per:", ["Giorno", "Settimana"], horizontal=True)
     
     # Prepara dati trend con stessi filtri
     df_trend_base = df_all[(df_all["snapshot_date"] >= start_date) & (df_all["snapshot_date"] <= end_date)]
