@@ -1,5 +1,5 @@
-streamlit==1.40.0
-pandas>=2.2.3
-openpyxl>=3.1.5
-numpy>=1.26.4
-altair>=5.4.1
+streamlit==1.44.0
+pandas==2.2.3
+openpyxl==3.1.5
+numpy==2.2.6
+altair==5.5.0
