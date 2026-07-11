@@ -445,12 +445,16 @@ with tab_grafici:
     
     st.divider()
     
-    st.subheader("% media del turno spesa su processi NIOSH >2")
+    st.subheader("% media del turno su NIOSH >2 (solo AAs esposti)")
+    st.caption("Calcolata solo su chi ha effettivamente lavorato in ITK1 o processi NIOSH >2")
     if len(dates_available) > 1:
         trend_niosh = []
         for date in sorted(df_trend_base["snapshot_date"].unique()):
             df_day = df_trend_base[df_trend_base["snapshot_date"] == date]
-            pct_niosh = df_day.apply(calc_niosh_alto_pct, axis=1).mean()
+            niosh_pcts = df_day.apply(calc_niosh_alto_pct, axis=1)
+            # Filtra solo chi ha effettivamente % > 0 su processi NIOSH >2
+            niosh_pcts_exposed = niosh_pcts[niosh_pcts > 0]
+            pct_niosh = niosh_pcts_exposed.mean() if len(niosh_pcts_exposed) > 0 else 0
             trend_niosh.append({"Data": date, "% del turno su NIOSH >2": pct_niosh})
         df_trend_niosh = pd.DataFrame(trend_niosh).set_index("Data")
         df_trend_niosh["Trend"] = df_trend_niosh["% del turno su NIOSH >2"].expanding().mean()
