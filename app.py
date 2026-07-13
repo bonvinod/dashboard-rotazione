@@ -141,6 +141,25 @@ def get_main_process(processes_str):
 def has_limitation(lim):
     return lim is not None and not pd.isna(lim) and str(lim).strip() not in ("", "0", "nan")
 
+def has_structural_limitation(lim):
+    """Limitazione che vincola strutturalmente a pochi processi (solo Pick/dinamici)."""
+    if not has_limitation(lim):
+        return False
+    lim_upper = str(lim).upper()
+    keywords = [
+        "POSTURA FISSA",
+        "POSTURE FISSE",
+        "SOLO A PROCESSI DINAMICI",
+        "SOLO PROCESSI DINAMICI",
+        "SOLO TRA PROCESSI DINAMICI",
+        "ESEGUIRE SOLO PROCESSI DINAMICI",
+        "SOPRA DEL PIANO DELLE SPALLE",
+        "SOPRA DEL PIANO SPALLE",
+        "SOPRA DEL PIANO CLAVEARE",
+        "SOPRA DEL PIANO DELLA SPALLA",
+    ]
+    return any(kw in lim_upper for kw in keywords)
+
 # === CARICA DATI ===
 df_all, dates_available = load_all_snapshots()
 
@@ -244,7 +263,11 @@ with tab_main:
         df_person = df_person[df_person["TotalHours"] >= min_hours].copy()
     if use_limitation_filter:
         df_person["HasLimitation"] = df_person["Limitazione"].apply(has_limitation)
-        df_person = df_person[~((df_person["RotationPercent"] * 100 < limitation_threshold) & (df_person["HasLimitation"]))].copy()
+        df_person["HasStructuralLimitation"] = df_person["Limitazione"].apply(has_structural_limitation)
+        df_person = df_person[~(
+            ((df_person["RotationPercent"] * 100 < limitation_threshold) & (df_person["HasLimitation"]))
+            | (df_person["HasStructuralLimitation"])
+        )].copy()
     
     df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
     df_person["MainProcess"] = df_person["Processes_7d_weighted"].apply(get_main_process)
@@ -393,7 +416,11 @@ with tab_grafici:
         df_trend_base = df_trend_base[df_trend_base["TotalHours"] >= min_hours]
     if use_limitation_filter:
         df_trend_base["_has_lim"] = df_trend_base["Limitazione"].apply(has_limitation)
-        df_trend_base = df_trend_base[~((df_trend_base["RotationPercent"] * 100 < limitation_threshold) & (df_trend_base["_has_lim"]))]
+        df_trend_base["_has_struct_lim"] = df_trend_base["Limitazione"].apply(has_structural_limitation)
+        df_trend_base = df_trend_base[~(
+            ((df_trend_base["RotationPercent"] * 100 < limitation_threshold) & (df_trend_base["_has_lim"]))
+            | (df_trend_base["_has_struct_lim"])
+        )]
     
     # Helper: raggruppa per settimana se richiesto
     def group_by_week(df_daily, value_col):
