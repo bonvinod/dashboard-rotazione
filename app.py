@@ -138,6 +138,14 @@ def get_main_process(processes_str):
             return match.group(1).strip()
     return ""
 
+def is_lead_or_ambassador(processes_str):
+    """Identifica ruoli Lead/PA/Ambassador — non sono task operative rotabili."""
+    if not processes_str or pd.isna(processes_str):
+        return False
+    main = get_main_process(processes_str)
+    main_upper = main.upper()
+    return any(kw in main_upper for kw in ["LEAD", "AMBSSDR", "AMBASSADOR", "LEAD/PA", "LEADPA"])
+
 def has_limitation(lim):
     return lim is not None and not pd.isna(lim) and str(lim).strip() not in ("", "0", "nan")
 
@@ -271,6 +279,7 @@ with tab_main:
     
     df_person["PctNioshAlto"] = df_person.apply(calc_niosh_alto_pct, axis=1)
     df_person["MainProcess"] = df_person["Processes_7d_weighted"].apply(get_main_process)
+    df_person["IsLeadPA"] = df_person["Processes_7d_weighted"].apply(is_lead_or_ambassador)
     process_counts = df_person["MainProcess"].value_counts()
     ops_threshold = 3 if selected_managers else 30
     processi_operations = set(process_counts[process_counts >= ops_threshold].index)
@@ -336,7 +345,7 @@ with tab_main:
     
     # SEZIONE 3: AAs sotto soglia
     st.subheader(f"⚠️ AAs con rotazione < {soglia_rotazione}%")
-    df_sotto = df_person[(df_person["RotationPercent"] * 100 < soglia_rotazione) & (df_person["IsOperations"])].sort_values("RotationPercent")
+    df_sotto = df_person[(df_person["RotationPercent"] * 100 < soglia_rotazione) & (df_person["IsOperations"]) & (~df_person["IsLeadPA"])].sort_values("RotationPercent")
     if len(df_sotto) > 0:
         df_sotto_show = df_sotto[["login", "manager_alias", "RotationPercent", "MainProcessShare", "MainProcess", "Limitazione"]].copy()
         df_sotto_show["RotationPercent"] = (df_sotto_show["RotationPercent"] * 100).round(1)
@@ -358,7 +367,7 @@ with tab_main:
     
     # SEZIONE 4: Alert per manager
     st.subheader("🏢 Situazione per Manager: quanti AAs non ruotano abbastanza")
-    df_alert_mgr = df_person[df_person["RotationPercent"] * 100 < soglia_rotazione].groupby("manager_alias").agg(
+    df_alert_mgr = df_person[(df_person["RotationPercent"] * 100 < soglia_rotazione) & (~df_person["IsLeadPA"])].groupby("manager_alias").agg(
         N_AAs_sotto_soglia=("login", "count"),
         Rotazione_media=("RotationPercent", "mean"),
     ).reset_index()
@@ -380,7 +389,7 @@ with tab_main:
     # SEZIONE 5: Processi stagnazione
     st.subheader("🎯 Processi con più stagnazione")
     process_stats = []
-    for _, row in df_person.iterrows():
+    for _, row in df_person[~df_person["IsLeadPA"]].iterrows():
         procs = extract_processes_list(row["Processes_7d_weighted"])
         if procs:
             main_proc = procs[0][0]
